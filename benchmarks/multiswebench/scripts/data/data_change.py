@@ -39,6 +39,7 @@ def format_data_for_inference(input_file, output_file):
             new_item["FAIL_TO_PASS"] = []
             new_item["PASS_TO_PASS"] = []
             new_item["base_commit"] = item["base"].get("sha", "")
+            new_item["number"] = item.get("number", "")
             new_item["version"] = "0.1"  # depends
 
             output_data = new_item

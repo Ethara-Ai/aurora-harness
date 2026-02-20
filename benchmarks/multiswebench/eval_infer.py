@@ -140,7 +140,7 @@ def main():
         logger.info(f"Results saved to {results_file}")
 
         # Move the report file to the output location
-        output_report_path = args.input_file.with_suffix(".report.json")
+        output_report_path = Path(args.input_file).with_suffix(".report.json")
         shutil.move(str(results_file), str(output_report_path))
         logger.info(f"Report moved to {output_report_path}")
 

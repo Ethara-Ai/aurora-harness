@@ -16,7 +16,7 @@ def convert_to_eval_format(input_file, output_file):
                         ],  # Preserve original instance_id
                         "org": groups.group(1),
                         "repo": groups.group(2),
-                        "number": groups.group(3),
+                        "number": int(groups.group(3)),
                         "fix_patch": data.get("test_result", {}).get("git_patch", "")
                         or "",
                     }

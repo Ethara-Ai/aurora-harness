@@ -217,3 +217,18 @@ workspace/
 # Evaluation outputs
 eval_outputs/
 builds/
+output/
+
+# Downloaded dataset files
+benchmarks/multiswebench/data/
+
+# macOS metadata
+.DS_Store
+vendor/.DS_Store
+
+# Instance selection files (per-language and generic)
+*_instances.txt
+instance_select.txt
+
+# Debug logs
+debug_logs/

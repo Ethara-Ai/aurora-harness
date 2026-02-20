@@ -46,13 +46,14 @@ def get_official_docker_image(
         official_image_name = f"{docker_image_prefix}/sweb.eval.x86_64.{repo_name}_1776_{issue_name}:latest".lower()
     else:
         # Use Multi-SWE-Bench style naming for other languages
-        # Format: {prefix}/{org}_m_{repo}:base
+        # Format: {prefix}/{org}_m_{repo}:pr-{number}
         if "/" in repo:
             org, repo_name = repo.split("/", 1)
         else:
             org = instance.get("org", repo)
             repo_name = repo
-        official_image_name = f"{docker_image_prefix}/{org}_m_{repo_name}:base"
+        number = instance.get("number", "")
+        official_image_name = f"{docker_image_prefix}/{org}_m_{repo_name}:pr-{number}"
 
     logger.debug(f"Multi-SWE-Bench image: {official_image_name}")
     return official_image_name
