@@ -12,7 +12,7 @@ RESET := \033[0m
 # Required uv version
 REQUIRED_UV_VERSION := 0.8.13
 
-.PHONY: build format lint clean help check-uv-version
+.PHONY: build patch-venv format lint clean help check-uv-version
 
 # Default target
 .DEFAULT_GOAL := help
@@ -39,7 +39,30 @@ build: check-uv-version
 	@$(ECHO) "$(YELLOW)Setting up pre-commit hooks...$(RESET)"
 	@uv run pre-commit install
 	@$(ECHO) "$(GREEN)Pre-commit hooks installed successfully.$(RESET)"
+	@$(MAKE) patch-venv
 	@$(ECHO) "$(GREEN)Build complete! Development environment is ready.$(RESET)"
+
+patch-venv:
+	@$(ECHO) "$(YELLOW)Applying venv patches for multi-swe-bench compatibility...$(RESET)"
+	@SITE_PKG=$$(ls -d .venv/lib/python*/site-packages 2>/dev/null | head -1); \
+	if [ -z "$$SITE_PKG" ]; then \
+		$(ECHO) "$(RED)Error: .venv not found. Run 'make build' first.$(RESET)"; exit 1; \
+	fi; \
+	QISKIT_FILE="$$SITE_PKG/multi_swe_bench/harness/repos/python/__init__.py"; \
+	if [ -f "$$QISKIT_FILE" ]; then \
+		sed -i '' 's|from multi_swe_bench.harness.repos.python.qiskit import \*|from multi_swe_bench.harness.repos.python.Qiskit import *|g' "$$QISKIT_FILE"; \
+		$(ECHO) "$(GREEN)  ✓ Fixed qiskit → Qiskit import case$(RESET)"; \
+	else \
+		$(ECHO) "$(YELLOW)  ⚠ qiskit fix: file not found, skipping$(RESET)"; \
+	fi; \
+	DOCKER_UTIL="$$SITE_PKG/multi_swe_bench/utils/docker_util.py"; \
+	if [ -f "$$DOCKER_UTIL" ]; then \
+		sed -i '' 's|docker_client = docker.from_env()|docker_client = docker.from_env(timeout=600)|g' "$$DOCKER_UTIL"; \
+		$(ECHO) "$(GREEN)  ✓ Fixed Docker client timeout to 600s$(RESET)"; \
+	else \
+		$(ECHO) "$(YELLOW)  ⚠ docker_util fix: file not found, skipping$(RESET)"; \
+	fi
+	@$(ECHO) "$(GREEN)Venv patches applied successfully.$(RESET)"
 
 format:
 	@$(ECHO) "$(YELLOW)Formatting code with uv format...$(RESET)"
