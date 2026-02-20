@@ -1,0 +1,26 @@
+diff --git a/openhands-agent-server/openhands/agent_server/docker/Dockerfile b/openhands-agent-server/openhands/agent_server/docker/Dockerfile
+index 595f67cf..b28abe39 100644
+--- a/openhands-agent-server/openhands/agent_server/docker/Dockerfile
++++ b/openhands-agent-server/openhands/agent_server/docker/Dockerfile
+@@ -28,7 +28,7 @@ COPY --chown=${USERNAME}:${USERNAME} openhands-tools ./openhands-tools
+ COPY --chown=${USERNAME}:${USERNAME} openhands-workspace ./openhands-workspace
+ COPY --chown=${USERNAME}:${USERNAME} openhands-agent-server ./openhands-agent-server
+ RUN --mount=type=cache,target=/home/${USERNAME}/.cache,uid=${UID},gid=${GID} \
+-    uv python install 3.13 && uv venv --python 3.13 .venv && uv sync --frozen --no-editable --managed-python
++    uv python install 3.13 && uv venv --python 3.13 .venv && uv sync --frozen --no-editable --managed-python --extra boto3
+ 
+ ####################################################################################
+ # Binary Builder (binary mode)
+diff --git a/openhands-agent-server/openhands/agent_server/docker/build.py b/openhands-agent-server/openhands/agent_server/docker/build.py
+index dc3dffcb..61d20a33 100755
+--- a/openhands-agent-server/openhands/agent_server/docker/build.py
++++ b/openhands-agent-server/openhands/agent_server/docker/build.py
+@@ -566,7 +566,7 @@ def build(opts: BuildOptions) -> list[str]:
+     if push:
+         args += ["--platform", ",".join(opts.platforms), "--push"]
+     else:
+-        args += ["--load"]
++        args += ["--platform", ",".join(opts.platforms), "--load"]
+ 
+     for t in tags:
+         args += ["--tag", t]
