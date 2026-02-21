@@ -34,7 +34,7 @@ build: check-uv-version
 	@$(ECHO) "$(YELLOW)Syncing submodules...$(RESET)"
 	@git submodule update --init --recursive
 	@$(ECHO) "$(YELLOW)Installing dependencies with uv sync --dev...$(RESET)"
-	@uv sync --dev
+	@UV_INSECURE_NO_ZIP_VALIDATION=1 uv sync --dev
 	@$(ECHO) "$(GREEN)Dependencies installed successfully.$(RESET)"
 	@$(ECHO) "$(YELLOW)Setting up pre-commit hooks...$(RESET)"
 	@uv run pre-commit install
