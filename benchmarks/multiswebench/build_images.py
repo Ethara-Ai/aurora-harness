@@ -52,8 +52,21 @@ def get_official_docker_image(
         else:
             org = instance.get("org", repo)
             repo_name = repo
-        number = instance.get("number", "")
-        official_image_name = f"{docker_image_prefix}/{org}_m_{repo_name}:pr-{number}"
+
+        # Get PR number: prefer explicit "number" field, otherwise parse from instance_id
+        number = instance.get("number")
+        if number is None:
+            # Parse from instance_id: e.g. "alibaba__fastjson2-2775" -> "2775"
+            instance_id = instance.get("instance_id", "")
+            if "-" in instance_id:
+                number = instance_id.rsplit("-", 1)[-1]
+
+        # Use pr-{number} tag if we have a number, otherwise fall back to "base"
+        if number:
+            tag = f"pr-{number}"
+        else:
+            tag = "base"
+        official_image_name = f"{docker_image_prefix}/{org}_m_{repo_name}:{tag}"
 
     logger.debug(f"Multi-SWE-Bench image: {official_image_name}")
     return official_image_name
