@@ -141,6 +141,39 @@ class MultiSWEBenchEvaluation(Evaluation):
             dataset_path = formatted_path
             logger.info(f"Using formatted dataset: {dataset_path}")
 
+        # Check if local JSONL file needs formatting (custom datasets)
+        # Custom datasets have raw format with 'org', 'repo', 'number', 'resolved_issues'
+        # but no 'instance_id' in the expected formatted structure
+        elif os.path.isfile(dataset_path) and dataset_path.endswith(".jsonl"):
+            needs_formatting = False
+            with open(dataset_path, "r") as f:
+                first_line = f.readline().strip()
+                if first_line:
+                    first_record = json.loads(first_line)
+                    # Check if this is raw format (has 'org', 'resolved_issues' but
+                    # repo is not in 'org/repo' format)
+                    has_org = "org" in first_record
+                    has_resolved_issues = "resolved_issues" in first_record
+                    repo_value = first_record.get("repo", "")
+                    repo_not_combined = "/" not in repo_value
+                    if has_org and has_resolved_issues and repo_not_combined:
+                        needs_formatting = True
+                        logger.info(
+                            f"Detected custom dataset in raw format, will auto-format: {dataset_path}"
+                        )
+
+            if needs_formatting:
+                import tempfile
+
+                with tempfile.NamedTemporaryFile(
+                    mode="w", suffix=".jsonl", delete=False
+                ) as temp_file:
+                    formatted_path = temp_file.name
+
+                format_data_for_inference(dataset_path, formatted_path)
+                dataset_path = formatted_path
+                logger.info(f"Using auto-formatted dataset: {dataset_path}")
+
         # Load dataset using direct JSON loading to handle complex nested structures
         logger.info(f"Loading dataset {dataset_path}")
         data = []
