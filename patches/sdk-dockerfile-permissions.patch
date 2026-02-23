@@ -1,8 +1,8 @@
 diff --git a/openhands-agent-server/openhands/agent_server/docker/Dockerfile b/openhands-agent-server/openhands/agent_server/docker/Dockerfile
-index 345ecd75..e4573b01 100644
+index 595f67cf..e4573b01 100644
 --- a/openhands-agent-server/openhands/agent_server/docker/Dockerfile
 +++ b/openhands-agent-server/openhands/agent_server/docker/Dockerfile
-@@ -55,6 +55,9 @@ RUN test -x /agent-server/dist/openhands-agent-server
+@@ -55,8 +55,15 @@ RUN test -x /agent-server/dist/openhands-agent-server
  FROM ${BASE_IMAGE} AS base-image-minimal
  ARG USERNAME UID GID PORT
  
@@ -11,8 +11,14 @@ index 345ecd75..e4573b01 100644
 +
  # Install base packages and create user
  RUN set -eux; \
-     # Remove Azul Zulu repo if present - it may have stale metadata that causes apt-get update
-@@ -80,6 +83,19 @@ RUN set -eux; \
++    # Remove Azul Zulu repo if present - it may have stale metadata that causes apt-get update
++    # to fail with "Repository changed its 'Origin'/'Label' value" (common with Multi-SWE-Bench
++    # and other Java base images when upstream repo metadata changes)
++    rm -f /etc/apt/sources.list.d/zulu.list 2>/dev/null || true; \
+     # Install base packages (works for both Debian-based images)
+     apt-get update; \
+     apt-get install -y --no-install-recommends \
+@@ -74,6 +81,19 @@ RUN set -eux; \
      chown -R ${USERNAME}:${USERNAME} /workspace; \
      rm -rf /var/lib/apt/lists/*
  
