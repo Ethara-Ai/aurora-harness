@@ -55,7 +55,10 @@ USE_HINT_TEXT = os.environ.get("USE_HINT_TEXT", "false").lower() == "true"
 USE_INSTANCE_IMAGE = os.environ.get("USE_INSTANCE_IMAGE", "true").lower() == "true"
 RUN_WITH_BROWSING = os.environ.get("RUN_WITH_BROWSING", "false").lower() == "true"
 # For Multi-SWE-Bench, force mswebench prefix instead of the general SWE-Bench prefix
-DOCKER_IMAGE_PREFIX = os.environ.get("EVAL_DOCKER_IMAGE_PREFIX", "mswebench")
+DOCKER_IMAGE_PREFIX = os.environ.get(
+    "EVAL_DOCKER_IMAGE_PREFIX",
+    "426628337772.dkr.ecr.ap-south-1.amazonaws.com/rfp-coding-q1",
+)
 
 logger.info(f"Using docker image prefix: {DOCKER_IMAGE_PREFIX}")
 

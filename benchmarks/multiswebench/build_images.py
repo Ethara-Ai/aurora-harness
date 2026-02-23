@@ -23,7 +23,10 @@ from openhands.sdk import get_logger
 logger = get_logger(__name__)
 
 # Environment variables for multi-language support
-DOCKER_IMAGE_PREFIX = os.environ.get("EVAL_DOCKER_IMAGE_PREFIX", "mswebench")
+DOCKER_IMAGE_PREFIX = os.environ.get(
+    "EVAL_DOCKER_IMAGE_PREFIX",
+    "426628337772.dkr.ecr.ap-south-1.amazonaws.com/rfp-coding-q1",
+)
 LANGUAGE = os.environ.get("LANGUAGE", "java")
 
 
