@@ -37,6 +37,15 @@ YELLOW='\033[33m'
 RED='\033[31m'
 RESET='\033[0m'
 
+# Cross-platform sed in-place: macOS requires '' after -i, Linux doesn't
+sed_inplace() {
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        sed -i '' "$@"
+    else
+        sed -i "$@"
+    fi
+}
+
 # ── A) Vendor patches ─────────────────────────────────────────────────────────
 
 SDK_DIR="vendor/software-agent-sdk"
@@ -75,7 +84,7 @@ fi
 # Fix 1: qiskit import case
 QISKIT_FILE="$SITE_PKG/multi_swe_bench/harness/repos/python/__init__.py"
 if [ -f "$QISKIT_FILE" ]; then
-    sed -i '' \
+    sed_inplace \
         's|from multi_swe_bench.harness.repos.python.qiskit import \*|from multi_swe_bench.harness.repos.python.Qiskit import *|g' \
         "$QISKIT_FILE"
     printf "${GREEN}  ✓ Fixed qiskit → Qiskit import case${RESET}\n"
@@ -86,7 +95,7 @@ fi
 # Fix 2: Docker client timeout
 DOCKER_UTIL="$SITE_PKG/multi_swe_bench/utils/docker_util.py"
 if [ -f "$DOCKER_UTIL" ]; then
-    sed -i '' \
+    sed_inplace \
         's|docker_client = docker.from_env()|docker_client = docker.from_env(timeout=600)|g' \
         "$DOCKER_UTIL"
     printf "${GREEN}  ✓ Fixed Docker client timeout to 600s${RESET}\n"
