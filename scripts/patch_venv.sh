@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # patch_venv.sh — Apply compatibility fixes after `make build`.
 #
-# Two categories of patches are applied:
+# Three categories of patches are applied:
 #
 # A) VENDOR PATCHES (patches/ directory)
 #    Patches applied to the vendored software-agent-sdk submodule using
@@ -29,6 +29,14 @@
 #    Fix 2 — Docker client timeout 60s → 600s:
 #      The default 60s timeout is too short for Docker image builds running
 #      under QEMU x86_64 emulation on Apple Silicon.
+#
+# C) CUSTOM INSTANCE REGISTRATIONS (patches/registry/)
+#    Custom or fixed Instance registration modules for tasks that either
+#    don't exist in the pip package or need modifications (e.g. non-root
+#    test execution, custom parse_log). These are copied into the venv's
+#    multi_swe_bench/harness/repos/ tree. Lost after every `uv sync`.
+#
+#    See docs/LIBUV_EVAL_POSTMORTEM.md for the full issue catalog.
 
 set -euo pipefail
 
@@ -101,6 +109,45 @@ if [ -f "$DOCKER_UTIL" ]; then
     printf "${GREEN}  ✓ Fixed Docker client timeout to 600s${RESET}\n"
 else
     printf "${YELLOW}  ⚠ docker_util fix: file not found, skipping${RESET}\n"
+fi
+
+# ── C) Custom instance registrations ─────────────────────────────────────────
+
+REGISTRY_DIR="patches/registry"
+REPOS_DIR="$SITE_PKG/multi_swe_bench/harness/repos"
+
+if [ -d "$REGISTRY_DIR" ]; then
+    INSTALLED=0
+    # Walk patches/registry/{lang}/{org}/{repo}.py and copy into venv
+    for reg_file in $(find "$REGISTRY_DIR" -name "*.py" -type f); do
+        # Strip the patches/registry/ prefix to get relative path
+        rel_path="${reg_file#$REGISTRY_DIR/}"
+        target="$REPOS_DIR/$rel_path"
+        target_dir=$(dirname "$target")
+
+        mkdir -p "$target_dir"
+
+        # Ensure __init__.py exists at every directory level
+        current="$REPOS_DIR"
+        IFS='/' read -ra parts <<< "$rel_path"
+        # Skip the last element (the .py filename)
+        for (( i=0; i<${#parts[@]}-1; i++ )); do
+            current="$current/${parts[$i]}"
+            if [ ! -f "$current/__init__.py" ]; then
+                touch "$current/__init__.py"
+            fi
+        done
+
+        cp "$reg_file" "$target"
+        INSTALLED=$((INSTALLED + 1))
+        printf "${GREEN}  ✓ Installed custom registry: $rel_path${RESET}\n"
+    done
+
+    if [ "$INSTALLED" -eq 0 ]; then
+        printf "${YELLOW}  ⚠ No .py files found in $REGISTRY_DIR${RESET}\n"
+    fi
+else
+    printf "${YELLOW}  ⚠ Custom registry dir not found ($REGISTRY_DIR), skipping${RESET}\n"
 fi
 
 printf "${GREEN}All patches applied successfully.${RESET}\n"
