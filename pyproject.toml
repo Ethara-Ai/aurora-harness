@@ -40,7 +40,7 @@ dependencies = [
     "tenacity>=9.1.2",
     "websockets>=12",
     "lmnr>=0.7.24",
-    "multi-swe-bench @ git+https://github.com/Ethara-Ai/multi-swe-bench.git@68f8b57",
+    "multi-swe-bench",
     "swt-bench @ git+https://github.com/logic-star-ai/swt-bench.git@5fdcd446ff05e248ecfffc19d560a210699f71f8",
 ]
 
@@ -114,7 +114,7 @@ openhands-tools = { workspace = true }
 openhands-workspace = { workspace = true }
 openhands-agent-server = { workspace = true }
 swt-bench = { git = "https://github.com/logic-star-ai/swt-bench.git", rev = "5fdcd446ff05e248ecfffc19d560a210699f71f8" }
-multi-swe-bench = { git = "https://github.com/Ethara-Ai/multi-swe-bench.git", rev = "68f8b57" }
+multi-swe-bench = { git = "https://github.com/Ethara-Ai/multi-swe-bench.git", branch = "main" }
 
 [tool.uv.workspace]
 members = [
