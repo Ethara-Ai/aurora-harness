@@ -114,7 +114,7 @@ openhands-tools = { workspace = true }
 openhands-workspace = { workspace = true }
 openhands-agent-server = { workspace = true }
 swt-bench = { git = "https://github.com/logic-star-ai/swt-bench.git", rev = "5fdcd446ff05e248ecfffc19d560a210699f71f8" }
-multi-swe-bench = { path = "/home/ec2-user/.opencode/Jaeger/multi-swe-bench", editable = true }
+multi-swe-bench = { git = "https://github.com/Ethara-Ai/multi-swe-bench.git", branch = "main" }
 litellm = { git = "https://github.com/Ethara-Ai/litellm.git", branch = "main" }
 
 [tool.uv.workspace]
