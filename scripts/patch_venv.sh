@@ -90,12 +90,15 @@ if [ -z "$SITE_PKG" ]; then
 fi
 
 # Fix 1: qiskit import case
+# The fork source has both Qiskit/ (uppercase) and qiskit/ (lowercase) directories.
+# Only qiskit/ (lowercase) survives Python packaging, but __init__.py may import Qiskit (uppercase).
+# This sed handles both directions to be safe regardless of which fork version is installed.
 QISKIT_FILE="$SITE_PKG/multi_swe_bench/harness/repos/python/__init__.py"
 if [ -f "$QISKIT_FILE" ]; then
     sed_inplace \
-        's|from multi_swe_bench.harness.repos.python.qiskit import \*|from multi_swe_bench.harness.repos.python.Qiskit import *|g' \
+        's|from multi_swe_bench.harness.repos.python.Qiskit import \*|from multi_swe_bench.harness.repos.python.qiskit import *|g' \
         "$QISKIT_FILE"
-    printf "${GREEN}  ✓ Fixed qiskit → Qiskit import case${RESET}\n"
+    printf "${GREEN}  ✓ Fixed Qiskit → qiskit import case${RESET}\n"
 else
     printf "${YELLOW}  ⚠ qiskit fix: file not found, skipping${RESET}\n"
 fi
