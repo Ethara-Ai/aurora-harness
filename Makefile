@@ -12,7 +12,7 @@ RESET := \033[0m
 # Required uv version
 REQUIRED_UV_VERSION := 0.8.13
 
-.PHONY: build format lint clean help check-uv-version
+.PHONY: build format lint clean help check-uv-version update-sdk
 
 # Default target
 .DEFAULT_GOAL := help
@@ -32,7 +32,7 @@ check-uv-version:
 build: check-uv-version
 	@$(ECHO) "$(CYAN)Setting up OpenHands V1 development environment...$(RESET)"
 	@$(ECHO) "$(YELLOW)Syncing submodules...$(RESET)"
-	@git submodule update --init --recursive
+	@git submodule update --init --recursive --remote
 	@$(ECHO) "$(YELLOW)Installing dependencies with uv sync --dev...$(RESET)"
 	@UV_INSECURE_NO_ZIP_VALIDATION=1 uv sync --dev
 	@$(ECHO) "$(GREEN)Dependencies installed successfully.$(RESET)"
@@ -58,3 +58,14 @@ clean:
 	@find . -type f -name "*.pyc" -delete 2>/dev/null || true
 	@rm -rf .pytest_cache .ruff_cache .mypy_cache 2>/dev/null || true
 	@$(ECHO) "$(GREEN)Cache files cleaned.$(RESET)"
+
+update-sdk: build
+	@$(ECHO) "$(CYAN)Persisting submodule pointer...$(RESET)"
+	@if git diff --quiet vendor/software-agent-sdk; then \
+		$(ECHO) "$(GREEN)Submodule already up to date. Nothing to commit.$(RESET)"; \
+	else \
+		SDK_SHA=$$(git -C vendor/software-agent-sdk rev-parse --short HEAD); \
+		git add -f vendor/software-agent-sdk; \
+		git commit -m "Update software-agent-sdk to $$SDK_SHA"; \
+		$(ECHO) "$(GREEN)Submodule pointer committed ($$SDK_SHA).$(RESET)"; \
+	fi
