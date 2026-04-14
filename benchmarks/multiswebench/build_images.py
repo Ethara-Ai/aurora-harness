@@ -64,7 +64,7 @@ def get_official_docker_image(
 
     # Use pr-{number} tag if we have a number, otherwise fall back to "base"
     tag = f"pr-{number}" if number else "base"
-    official_image_name = f"{docker_image_prefix}/{org}_m_{repo_name}:{tag}"
+    official_image_name = f"{docker_image_prefix}/{org}_m_{repo_name}:{tag}".lower()
 
     logger.debug(f"Multi-SWE-Bench image: {official_image_name}")
     return official_image_name

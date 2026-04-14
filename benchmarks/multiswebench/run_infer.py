@@ -1,5 +1,6 @@
 import json
 import os
+import platform
 from pathlib import Path
 from typing import List, cast
 
@@ -34,7 +35,7 @@ from benchmarks.utils.models import (
 )
 from benchmarks.utils.version import SDK_SHORT_SHA
 from openhands.sdk import LLM, Agent, Conversation, Tool, get_logger
-from openhands.sdk.workspace import RemoteWorkspace
+from openhands.sdk.workspace import PlatformType, RemoteWorkspace
 from openhands.tools.delegate import DelegateTool
 from openhands.tools.preset.default import get_default_tools
 from openhands.workspace import APIRemoteWorkspace, DockerWorkspace
@@ -104,6 +105,14 @@ def get_instruction(
         )
 
     return instruction
+
+
+def _detect_docker_platform() -> PlatformType:
+    """Detect the host architecture and return the corresponding Docker platform."""
+    machine = platform.machine().lower()
+    if machine in ("aarch64", "arm64"):
+        return "linux/arm64"
+    return "linux/amd64"
 
 
 class MultiSWEBenchEvaluation(Evaluation):
@@ -277,10 +286,17 @@ class MultiSWEBenchEvaluation(Evaluation):
                         f"{agent_server_image}"
                     )
 
+            docker_platform_env = os.getenv("DOCKER_PLATFORM")
+            docker_platform: PlatformType = (
+                cast(PlatformType, docker_platform_env)
+                if docker_platform_env
+                else _detect_docker_platform()
+            )
             workspace = DockerWorkspace(
                 server_image=agent_server_image,
                 working_dir="/workspace",
                 forward_env=forward_env or [],
+                platform=docker_platform,
             )
         elif self.metadata.workspace_type == "remote":
             runtime_api_key = os.getenv("RUNTIME_API_KEY")
