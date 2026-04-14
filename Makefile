@@ -39,7 +39,6 @@ build: check-uv-version
 	@$(ECHO) "$(YELLOW)Setting up pre-commit hooks...$(RESET)"
 	@uv run pre-commit install
 	@$(ECHO) "$(GREEN)Pre-commit hooks installed successfully.$(RESET)"
-	@bash scripts/patch_venv.sh
 	@$(ECHO) "$(GREEN)Build complete! Development environment is ready.$(RESET)"
 
 format:
