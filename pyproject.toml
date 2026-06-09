@@ -114,9 +114,9 @@ openhands-tools = { workspace = true }
 openhands-workspace = { workspace = true }
 openhands-agent-server = { workspace = true }
 swt-bench = { git = "https://github.com/logic-star-ai/swt-bench.git", rev = "5fdcd446ff05e248ecfffc19d560a210699f71f8" }
-commit0 = { git = "https://github.com/Ethara-Ai/commit0.git", branch = "main" }
-multi-swe-bench = { git = "https://github.com/Ethara-Ai/multi-swe-bench.git", branch = "main" }
-litellm = { git = "https://github.com/Ethara-Ai/litellm.git", branch = "main" }
+commit0 = { git = "https://github.com/Ethara-Ai/commit0.git", rev = "1bd6bf353f736278b10b6ec97c1b27afa2ff6c75" }
+multi-swe-bench = { git = "https://github.com/Ethara-Ai/multi-swe-bench.git", rev = "fcdc0f55d3c49c94f88abbe318f31af46ab0686d" }
+litellm = { git = "https://github.com/Ethara-Ai/litellm.git", rev = "13e406d6e0fb7a6b95a6f3e0e1618d291f6b326b" }
 
 [tool.uv.workspace]
 members = [
