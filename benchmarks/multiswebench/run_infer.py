@@ -292,10 +292,29 @@ class MultiSWEBenchEvaluation(Evaluation):
                 if docker_platform_env
                 else _detect_docker_platform()
             )
+            # Vertex AI service-account injection (opt-in via VERTEX_SA_HOST_PATH).
+            # The agent-server container runs the LLM calls; vertex_ai/ auth needs
+            # the SA key file inside the container plus GOOGLE_APPLICATION_CREDENTIALS
+            # pointing at it. DockerWorkspace.volumes mounts the file; forward_env
+            # carries the env vars (set on the host to the CONTAINER-side path).
+            sa_volumes: list[str] = []
+            sa_forward_env: list[str] = []
+            _sa_host = os.getenv("VERTEX_SA_HOST_PATH")
+            if _sa_host:
+                _sa_ctnr = os.getenv("VERTEX_SA_CONTAINER_PATH", "/opt/vertex-sa.json")
+                sa_volumes = [f"{_sa_host}:{_sa_ctnr}:ro"]
+                sa_forward_env = [
+                    "GOOGLE_APPLICATION_CREDENTIALS",
+                    "VERTEX_PROJECT",
+                    "VERTEX_LOCATION",
+                    "VERTEXAI_PROJECT",
+                    "VERTEXAI_LOCATION",
+                ]
             workspace = DockerWorkspace(
                 server_image=agent_server_image,
                 working_dir="/workspace",
-                forward_env=forward_env or [],
+                forward_env=(forward_env or []) + sa_forward_env,
+                volumes=sa_volumes,
                 platform=docker_platform,
             )
         elif self.metadata.workspace_type == "remote":

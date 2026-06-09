@@ -683,7 +683,7 @@ wheels = [
 [[package]]
 name = "commit0"
 version = "0.1.8"
-source = { git = "https://github.com/Ethara-Ai/commit0.git?branch=main#1bd6bf353f736278b10b6ec97c1b27afa2ff6c75" }
+source = { git = "https://github.com/Ethara-Ai/commit0.git?rev=1bd6bf353f736278b10b6ec97c1b27afa2ff6c75#1bd6bf353f736278b10b6ec97c1b27afa2ff6c75" }
 dependencies = [
     { name = "datasets" },
     { name = "docker" },
@@ -2371,7 +2371,7 @@ wheels = [
 [[package]]
 name = "multi-swe-bench"
 version = "1.1.0"
-source = { git = "https://github.com/Ethara-Ai/multi-swe-bench.git?branch=main#fcdc0f55d3c49c94f88abbe318f31af46ab0686d" }
+source = { git = "https://github.com/Ethara-Ai/multi-swe-bench.git?rev=b2034e268e7d120c564c75614812dbf6827fad4c#b2034e268e7d120c564c75614812dbf6827fad4c" }
 dependencies = [
     { name = "dataclasses-json" },
     { name = "docker" },
@@ -2735,7 +2735,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "commit0", git = "https://github.com/Ethara-Ai/commit0.git?branch=main" },
+    { name = "commit0", git = "https://github.com/Ethara-Ai/commit0.git?rev=1bd6bf353f736278b10b6ec97c1b27afa2ff6c75" },
     { name = "datasets" },
     { name = "deprecation", specifier = ">=2.1.0" },
     { name = "docker" },
@@ -2747,10 +2747,10 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "huggingface-hub" },
     { name = "jinja2" },
-    { name = "litellm", git = "https://github.com/Ethara-Ai/litellm.git?branch=main" },
+    { name = "litellm", git = "https://github.com/Ethara-Ai/litellm.git?rev=13e406d6e0fb7a6b95a6f3e0e1618d291f6b326b" },
     { name = "lmnr", specifier = ">=0.7.24" },
     { name = "modal", specifier = ">=1.1.4" },
-    { name = "multi-swe-bench", git = "https://github.com/Ethara-Ai/multi-swe-bench.git?branch=main" },
+    { name = "multi-swe-bench", git = "https://github.com/Ethara-Ai/multi-swe-bench.git?rev=b2034e268e7d120c564c75614812dbf6827fad4c" },
     { name = "openhands-agent-server", editable = "vendor/software-agent-sdk/openhands-agent-server" },
     { name = "openhands-sdk", editable = "vendor/software-agent-sdk/openhands-sdk" },
     { name = "openhands-tools", editable = "vendor/software-agent-sdk/openhands-tools" },
