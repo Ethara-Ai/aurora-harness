@@ -1,7 +1,3 @@
-<uploaded_files>
-{repo_dir}
-</uploaded_files>
-
 I've uploaded a {language} code repository in the directory {repo_dir}. Consider the following issue description:
 
 <issue_description>
