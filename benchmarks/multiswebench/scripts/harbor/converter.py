@@ -973,7 +973,12 @@ def build_trajectory(
     if report_path.exists():
         report_data = json.loads(report_path.read_text(encoding="utf-8"))
         resolved_ids = set(report_data.get("resolved_ids", []))
-    reward_value = 1.0 if instance_id in resolved_ids else 0.0
+    multiswebench_id = f"{org}/{repo_name}:pr-{pr_number}"
+    reward_value = (
+        1.0
+        if (instance_id in resolved_ids or multiswebench_id in resolved_ids)
+        else 0.0
+    )
 
     metrics = record.get("metrics") or {}
     token_usage = metrics.get("accumulated_token_usage") or {}
