@@ -40,6 +40,12 @@ DATA_REPO="https://github.com/Ethara-Ai/milo-bench-dataset"
 GIT_BRANCH=""
 NO_PUSH=false
 ENV_FILE=""
+COMPRESSION="none"
+HEADROOM_PORT=8787
+HEADROOM_PID=""
+HEADROOM_LOG=""
+HEADROOM_TEMP_CFG=""
+RUNTIME_LLM_CONFIG=""
 
 usage() {
     cat <<'EOF'
@@ -110,6 +116,19 @@ Publishing (one local commit is created for the dataset, then pushed at end):
                             commit is kept locally).
                             Any single file >=100 MiB is skipped (GitHub limit).
 
+Compression (experimental):
+  --compression MODE        none | headroom                              [default: none]
+                            With 'headroom', starts a local `headroom proxy` (from the
+                            optional 'compression' extra: `uv sync --extra compression`)
+                            on --headroom-port and rewrites the LLM config's base_url to
+                            route through it. The original base_url is forwarded as the
+                            upstream. Trajectories from compressed runs are published to
+                            trajectories/<iid>_<uuid>__c-headroom/ (the baseline slug is
+                            unchanged). NOTE: compressed runs are NOT directly comparable
+                            to baseline runs -- treat compression as an evaluation
+                            dimension, not a free win.
+  --headroom-port PORT      Local port for the headroom proxy             [default: 8787]
+
 Examples:
   # Rust eval with local Dockerfile
   ./run_custom_eval.sh \
@@ -163,6 +182,8 @@ while [[ $# -gt 0 ]]; do
         --git-branch)       GIT_BRANCH="$2";        shift 2 ;;
         --env-file)         ENV_FILE="$2";          shift 2 ;;
         --no-push)          NO_PUSH=true;           shift ;;
+        --compression)      COMPRESSION="$2";       shift 2 ;;
+        --headroom-port)    HEADROOM_PORT="$2";     shift 2 ;;
         --skip-infer)       SKIP_INFER=true;        shift ;;
         --skip-eval)        SKIP_EVAL=true;         shift ;;
         --skip-summary)     SKIP_SUMMARY=true;      shift ;;
@@ -183,6 +204,13 @@ if [[ -z "$DOCKERFILE" && -z "$ECR_PREFIX" ]]; then
 fi
 if [[ -n "$DOCKERFILE" && ! -f "$DOCKERFILE" ]]; then
     echo "ERROR: Dockerfile not found: $DOCKERFILE"; exit 1
+fi
+case "$COMPRESSION" in
+    none|headroom) ;;
+    *) echo "ERROR: --compression must be 'none' or 'headroom' (got: $COMPRESSION)"; exit 1 ;;
+esac
+if ! [[ "$HEADROOM_PORT" =~ ^[0-9]+$ ]] || [[ "$HEADROOM_PORT" -lt 1 || "$HEADROOM_PORT" -gt 65535 ]]; then
+    echo "ERROR: --headroom-port must be 1-65535"; exit 1
 fi
 
 # ── Refresh multi-swe-bench to latest main (targeted upgrade) ────────────────
@@ -318,6 +346,72 @@ _authed_url() {
     esac
 }
 
+mk_temp_llm_config() {
+    local src="$1" new_base="$2"
+    local tmp
+    tmp="$(mktemp "${TMPDIR:-/tmp}/llm_config_headroom.XXXXXX.json")" || return 1
+    if ! python3 - "$src" "$tmp" "$new_base" <<'PYSCRIPT'
+import json, sys
+src, dst, base = sys.argv[1:4]
+with open(src) as f:
+    cfg = json.load(f)
+cfg["base_url"] = base
+with open(dst, "w") as f:
+    json.dump(cfg, f, indent=2)
+PYSCRIPT
+    then
+        rm -f "$tmp"
+        return 1
+    fi
+    printf '%s' "$tmp"
+}
+
+start_headroom_proxy() {
+    local port="$1" upstream="$2" log_file="$3"
+    if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+        echo "ERROR: headroom port $port already in use; pick another with --headroom-port" >&2
+        return 1
+    fi
+    export OPENAI_TARGET_API_URL="$upstream"
+    export ANTHROPIC_TARGET_API_URL="$upstream"
+    (cd "$SCRIPT_DIR" && uv run headroom proxy \
+        --host 127.0.0.1 --port "$port" \
+        --log-file "$log_file" \
+        --no-telemetry --stateless) >>"$log_file" 2>&1 &
+    HEADROOM_PID=$!
+    local waited=0
+    while [[ $waited -lt 60 ]]; do
+        if curl -fsS "http://127.0.0.1:${port}/health" >/dev/null 2>&1; then
+            echo "headroom: proxy ready on 127.0.0.1:$port (PID $HEADROOM_PID, upstream $upstream)"
+            return 0
+        fi
+        if ! kill -0 "$HEADROOM_PID" 2>/dev/null; then
+            echo "ERROR: headroom proxy died during startup; see $log_file" >&2
+            HEADROOM_PID=""
+            return 1
+        fi
+        sleep 0.5
+        waited=$((waited + 1))
+    done
+    echo "ERROR: headroom proxy did not become ready within 30s on port $port (see $log_file)" >&2
+    kill "$HEADROOM_PID" 2>/dev/null
+    HEADROOM_PID=""
+    return 1
+}
+
+stop_headroom_proxy() {
+    [[ -z "${HEADROOM_PID:-}" ]] && return 0
+    kill "$HEADROOM_PID" 2>/dev/null
+    wait "$HEADROOM_PID" 2>/dev/null
+    HEADROOM_PID=""
+}
+
+capture_headroom_perf() {
+    [[ "$COMPRESSION" == "none" ]] && return 0
+    [[ -z "${HEADROOM_PID:-}" ]] && return 0
+    curl -fsS "http://127.0.0.1:${HEADROOM_PORT}/stats" -o "$1" 2>/dev/null || true
+}
+
 # ── Publish setup: clone/sync the dataset repo and prepare commit/push state ─
 REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || echo "")"
 
@@ -431,14 +525,40 @@ fi
 # ── Clean shutdown ───────────────────────────────────────────────────────────
 trap 'echo; echo "Interrupted"; rm -rf "$PUSH_LOCK" "$COMMIT_LOCK" 2>/dev/null; exit 130' INT TERM
 
+RUNTIME_LLM_CONFIG="$LLM_CONFIG"
+if [[ "$COMPRESSION" == "headroom" ]]; then
+    HEADROOM_LOG="${RUN_BASE}/_headroom.log"
+    ORIG_BASE_URL="$(python3 -c "import json; print(json.load(open('${LLM_CONFIG}')).get('base_url',''))" 2>/dev/null)"
+    if [[ -z "$ORIG_BASE_URL" ]]; then
+        log "ERROR: --compression headroom requires a 'base_url' field in $LLM_CONFIG"; exit 1
+    fi
+    log "Installing headroom-ai (uv sync --extra compression)..."
+    if ! (cd "$SCRIPT_DIR" && uv sync --extra compression >/dev/null 2>&1); then
+        log "ERROR: 'uv sync --extra compression' failed; cannot enable headroom"; exit 1
+    fi
+    if ! start_headroom_proxy "$HEADROOM_PORT" "$ORIG_BASE_URL" "$HEADROOM_LOG"; then
+        exit 1
+    fi
+    HEADROOM_TEMP_CFG="$(mk_temp_llm_config "$LLM_CONFIG" "http://127.0.0.1:${HEADROOM_PORT}")" || {
+        log "ERROR: could not materialize temp LLM config for headroom"; exit 1; }
+    RUNTIME_LLM_CONFIG="$HEADROOM_TEMP_CFG"
+    log "headroom: runtime LLM config = $RUNTIME_LLM_CONFIG (base_url=http://127.0.0.1:${HEADROOM_PORT}, upstream=$ORIG_BASE_URL)"
+fi
+
+_cleanup_compression() {
+    stop_headroom_proxy
+    [[ -n "${HEADROOM_TEMP_CFG:-}" && -f "$HEADROOM_TEMP_CFG" ]] && rm -f "$HEADROOM_TEMP_CFG"
+}
+trap _cleanup_compression EXIT
+
 iso_now_microseconds() {
     python3 -c 'from datetime import datetime, timezone; print(datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z"))'
 }
 
 write_metadata_json() {
-    python3 - "$1" "$2" "$3" "$4" "$5" "$6" <<'PYSCRIPT'
+    python3 - "$1" "$2" "$3" "$4" "$5" "$6" "$7" <<'PYSCRIPT'
 import json, sys
-run_dir, llm_cfg_path, max_iter, lang, dataset_path, workspace = sys.argv[1:7]
+run_dir, llm_cfg_path, max_iter, lang, dataset_path, workspace, compression = sys.argv[1:8]
 with open(llm_cfg_path) as f:
     llm_cfg = json.load(f)
 metadata = {
@@ -447,6 +567,7 @@ metadata = {
     "lang": lang,
     "dataset": dataset_path,
     "workspace_type": workspace,
+    "compression": compression,
 }
 with open(f"{run_dir}/metadata.json", "w") as f:
     json.dump(metadata, f, indent=2)
@@ -487,6 +608,7 @@ stage_dataset() {
     fi
 
     local slug="${iid}_${dataset_uuid}"
+    [[ "$COMPRESSION" != "none" ]] && slug="${slug}__c-${COMPRESSION}"
     local inst="$TRAJ_PUB_DIR/$slug"
     local d_dataset="$inst/_dataset"
     local d_traj="$inst/trajectory"
@@ -806,7 +928,7 @@ for i in $(seq "$START_RUN" "$K"); do
 
         INFER_CMD=(
             uv run python -m benchmarks.multiswebench.run_infer
-            "$LLM_CONFIG"
+            "$RUNTIME_LLM_CONFIG"
             --dataset "$CANONICAL_DATASET"
             --split "$SPLIT"
             --lang "$LANG"
@@ -865,9 +987,9 @@ for i in $(seq "$START_RUN" "$K"); do
     fi
 
     # ── METADATA SIDECAR (consumed by harbor converter) ────────
-    python3 - "$RUN_DIR" "$LLM_CONFIG" "$MAX_ITER" "$LANG" "$CANONICAL_DATASET" "$WORKSPACE" <<'PYSCRIPT'
+    python3 - "$RUN_DIR" "$LLM_CONFIG" "$MAX_ITER" "$LANG" "$CANONICAL_DATASET" "$WORKSPACE" "$COMPRESSION" <<'PYSCRIPT'
 import json, sys
-run_dir, llm_cfg_path, max_iter, lang, dataset_path, workspace = sys.argv[1:7]
+run_dir, llm_cfg_path, max_iter, lang, dataset_path, workspace, compression = sys.argv[1:8]
 with open(llm_cfg_path) as f:
     llm_cfg = json.load(f)
 metadata = {
@@ -876,6 +998,7 @@ metadata = {
     "lang": lang,
     "dataset": dataset_path,
     "workspace_type": workspace,
+    "compression": compression,
 }
 with open(f"{run_dir}/metadata.json", "w") as f:
     json.dump(metadata, f, indent=2)
@@ -918,6 +1041,8 @@ PYSCRIPT
         PHASE_VERIFIER_START="$(iso_now_microseconds)"
         PHASE_VERIFIER_END="$PHASE_VERIFIER_START"
     fi
+
+    capture_headroom_perf "${RUN_DIR}/headroom_perf.json"
 
     PHASE_TIMES_FILE="${RUN_DIR}/phase_times.json"
     python3 - "$PHASE_TIMES_FILE" \
