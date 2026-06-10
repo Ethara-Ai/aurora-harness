@@ -969,17 +969,41 @@ def build_trajectory(
         return
     record = output_records[0]
 
-    report_path = run_dir / "output.report.json"
-    resolved_ids: set[str] = set()
-    if report_path.exists():
-        report_data = json.loads(report_path.read_text(encoding="utf-8"))
-        resolved_ids = set(report_data.get("resolved_ids", []))
-    multiswebench_id = f"{org}/{repo_name}:pr-{pr_number}"
-    reward_value = (
-        1.0
-        if (instance_id in resolved_ids or multiswebench_id in resolved_ids)
-        else 0.0
-    )
+    instance_report_path = instance_workdir / "report.json"
+    reward_value = 0.0
+    if instance_report_path.exists():
+        try:
+            instance_report = json.loads(
+                instance_report_path.read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError):
+            instance_report = {}
+        fix_patch_result = instance_report.get("fix_patch_result") or {}
+        passed_count = int(fix_patch_result.get("passed_count") or 0)
+        failed_count = int(fix_patch_result.get("failed_count") or 0)
+        skipped_count = int(fix_patch_result.get("skipped_count") or 0)
+        p2p_count = len(instance_report.get("p2p_tests") or {})
+        active_total = passed_count + failed_count + skipped_count - p2p_count
+        if active_total > 0:
+            positives = (
+                len(instance_report.get("f2p_tests") or {})
+                + len(instance_report.get("n2p_tests") or {})
+                + len(instance_report.get("s2p_tests") or {})
+            )
+            test_patch_result = instance_report.get("test_patch_result") or {}
+            baseline_passing = set(test_patch_result.get("passed_tests") or [])
+            baseline_failing = set(test_patch_result.get("failed_tests") or [])
+            baseline_skipped = set(test_patch_result.get("skipped_tests") or [])
+            fix_failing = set(fix_patch_result.get("failed_tests") or [])
+            p2f_count = len(baseline_passing & fix_failing)
+            s2f_count = len(baseline_skipped & fix_failing)
+            n2f_count = len(
+                fix_failing - baseline_passing - baseline_failing - baseline_skipped
+            )
+            negatives = p2f_count + s2f_count + n2f_count
+            reward_value = max(
+                0.0, (positives - negatives) / active_total * 100.0
+            )
 
     metrics = record.get("metrics") or {}
     token_usage = metrics.get("accumulated_token_usage") or {}
@@ -1227,9 +1251,8 @@ def build_trajectory(
         json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
     )
 
-    reward_token = "1" if reward_value >= 1.0 else "0"
     (traj_dir / "verifier" / "reward.txt").write_text(
-        f"{reward_token}\n", encoding="utf-8"
+        f"{reward_value:.2f}\n", encoding="utf-8"
     )
     fix_patch_run_log = instance_workdir / "fix-patch-run.log"
     test_stdout_text = (
