@@ -185,6 +185,24 @@ if [[ -n "$DOCKERFILE" && ! -f "$DOCKERFILE" ]]; then
     echo "ERROR: Dockerfile not found: $DOCKERFILE"; exit 1
 fi
 
+# ── Refresh multi-swe-bench to latest main (targeted upgrade) ────────────────
+# pyproject.toml pins multi-swe-bench to `branch = "main"`; this picks up any
+# new commits without manual lockfile bumps. Only this one package is upgraded;
+# every other dep stays at its locked version. Falls back to cached install on
+# network/resolution failure; hard-fails only if the environment is unrecoverable.
+echo "Refreshing multi-swe-bench to latest main..."
+if (cd "$SCRIPT_DIR" && uv lock --upgrade-package multi-swe-bench >/dev/null 2>&1 && uv sync >/dev/null 2>&1); then
+    echo "  ok: multi-swe-bench refreshed"
+else
+    echo "  WARN: refresh failed (network or resolution conflict); falling back to cached version"
+    if ! (cd "$SCRIPT_DIR" && uv sync --frozen >/dev/null 2>&1); then
+        echo "  FATAL: environment is in an inconsistent state and cached version is also broken."
+        echo "  Try: revert pyproject.toml multi-swe-bench line to a known-good SHA and run 'uv sync'"
+        exit 1
+    fi
+    echo "  ok: continuing with cached version"
+fi
+
 # ── Resolve paths ────────────────────────────────────────────────────────────
 DATASET="$(cd "$(dirname "$DATASET")" && pwd)/$(basename "$DATASET")"
 LLM_CONFIG="$(cd "$(dirname "$LLM_CONFIG")" && pwd)/$(basename "$LLM_CONFIG")"
