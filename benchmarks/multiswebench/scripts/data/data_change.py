@@ -44,6 +44,12 @@ def format_data_for_inference(input_file, output_file, max_chars=None):
             repo = item.get("repo", "")
             number = str(item.get("number", ""))
 
+            if "uuid" not in item or not item["uuid"]:
+                raise ValueError(
+                    f"Dataset record for {org}/{repo}-{number} is missing required 'uuid' field. "
+                    f"Regenerate the source dataset with the updated build_lht_dataset.py."
+                )
+
             if not item.get("resolved_issues"):
                 print(f"Skipping instance {org}/{repo}-{number} - no resolved_issues")
                 continue
@@ -98,6 +104,7 @@ def format_data_for_inference(input_file, output_file, max_chars=None):
             new_item = {
                 "repo": f"{org}/{repo}",
                 "instance_id": f"{org}__{repo}-{number}",
+                "uuid": item["uuid"],
                 "problem_statement": problem_statement,
                 "FAIL_TO_PASS": [],
                 "PASS_TO_PASS": [],

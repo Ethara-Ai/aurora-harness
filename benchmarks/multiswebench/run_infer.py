@@ -482,12 +482,20 @@ class MultiSWEBenchEvaluation(Evaluation):
             logger=logger,
         )
 
+        if "uuid" not in instance.data or not instance.data["uuid"]:
+            raise ValueError(
+                f"Dataset record for {instance.id} is missing required 'uuid' field. "
+                f"Regenerate the dataset with the updated build_lht_dataset.py."
+            )
+        instance_uuid = instance.data["uuid"]
+
         # EvalOutput is your model; keep fields consistent with prior JSONL
         out = EvalOutput(
             instance_id=instance.id,
             attempt=self.current_attempt,
             test_result={
                 "git_patch": git_patch,
+                "uuid": instance_uuid,
             },
             instruction=instruction,
             error=None,

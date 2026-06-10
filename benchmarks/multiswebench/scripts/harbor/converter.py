@@ -946,6 +946,7 @@ def build_trajectory(
     out_dir: Path,
     instance_id: str,
     task_meta: dict[str, Any],
+    task_uuid: str,
 ) -> None:
     sanitized_id = task_meta["sanitized_id"]
     full_task_name = task_meta["full_task_name"]
@@ -1012,7 +1013,7 @@ def build_trajectory(
             if isinstance(raw_id, str) and raw_id:
                 conv_id = raw_id
     job_id = conv_id or str(uuid.uuid4())
-    result_id = str(uuid.uuid4())
+    result_id = task_uuid
 
     metadata: dict[str, Any] = dict(record.get("metadata") or {})
     for key, value in load_sidecar_metadata(run_dir).items():
@@ -1246,6 +1247,7 @@ def convert_instance(
     dataset_dir: Path,
     out_root: Path,
     ecr_prefix: str,
+    task_uuid: str,
 ) -> None:
     instance_id_from_path = instance_dir.name
     instance_id_normalized = instance_id_from_path.replace("__", "__")
@@ -1316,6 +1318,7 @@ def convert_instance(
                 out_dir,
                 instance_id_normalized,
                 task_meta,
+                task_uuid,
             )
 
 
@@ -1358,7 +1361,16 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Restrict conversion to specific instance directory names (repeatable)",
     )
+    parser.add_argument(
+        "--task-uuid",
+        required=True,
+        help="The dataset's uuid field; propagated as result_id into harbor result.json. "
+             "MUST be provided -- there is no fallback.",
+    )
     args = parser.parse_args(argv)
+
+    if not args.task_uuid:
+        parser.error("--task-uuid is required and must be non-empty")
 
     run_base_dir: Path = args.run_base_dir
     out_root: Path = args.out
@@ -1380,7 +1392,7 @@ def main(argv: list[str] | None = None) -> int:
             instance_dirs.append(child)
 
     for instance_dir in instance_dirs:
-        convert_instance(instance_dir, dataset_dir, out_root, args.ecr_prefix)
+        convert_instance(instance_dir, dataset_dir, out_root, args.ecr_prefix, args.task_uuid)
 
     return 0
 
