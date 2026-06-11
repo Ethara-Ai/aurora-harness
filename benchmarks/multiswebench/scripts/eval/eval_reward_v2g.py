@@ -397,12 +397,11 @@ def main(argv: list[str] | None = None) -> int:
         writer = csv.DictWriter(fh, fieldnames=fieldnames)
         writer.writeheader()
         for report_path in reports:
-            parts = report_path.parts
             try:
-                trajectories_idx = parts.index("trajectories")
-                instance_id = parts[trajectories_idx + 1]
-                model = parts[trajectories_idx + 2]
-                run = parts[trajectories_idx + 3]
+                rel_parts = report_path.relative_to(args.trajectories).parts
+                instance_id = rel_parts[0]
+                model = rel_parts[1]
+                run = rel_parts[2]
             except (ValueError, IndexError):
                 continue
             dataset_path = index.get(instance_id.lower())

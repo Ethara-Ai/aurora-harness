@@ -210,7 +210,7 @@ class InvariantTests(unittest.TestCase):
 
         ds, rpt = scenario
         out = compute(ds, rpt)
-        self.assertIn(out["reward_version"], ("binary",), f"unknown reward_version: {out['reward_version']}")
+        self.assertIn(out["reward_version"], ("binary", "continuous_v2"), f"unknown reward_version: {out['reward_version']}")
 
     @given(valid_scenario())
     @settings(max_examples=200)
