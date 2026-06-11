@@ -9,10 +9,10 @@ set -uo pipefail
 # MANY datasets and executes up to --parallel of them at once. Each dataset is
 # one instance/bundle and gets its own harbor export under <tag>_harbor/.
 #
-# After each dataset finishes, it is staged under trajectories/<iid>_<uuid>/
-# (<iid> = <org>__<repo>-<number>; <uuid> from harbor's result.json), with subdirs
-# _dataset/, trajectory/<model>/run_N/, and <iid>_harbor/{task,trajectory}/, and a
-# single local commit is made for that dataset. After ALL datasets finish, every
+# After each dataset finishes, its harbor output is staged under two top-level
+# dirs keyed by the dataset uuid: dataset/<uuid>/ (harbor task contents) and
+# trajectory/<uuid>/ (harbor trajectory contents), and a single local commit
+# is made for that dataset. After ALL datasets finish, every
 # accumulated commit is pushed in one network operation against a separate dataset
 # repo (default https://github.com/Ethara-Ai/milo-bench-dataset), cloned on
 # startup into <script dir>/../milo-bench-dataset/ if missing. The GitHub token
@@ -111,13 +111,11 @@ Output / stages:
                             (default: resume -- skip datasets/runs already done)
 
 Publishing (one commit per dataset is created; all commits are pushed together at end):
-  Stages under <data-dir>/trajectories/<iid>_<uuid>/ with subdirs:
-    trajectories/<iid>_<uuid>/_dataset/<iid>.jsonl       (normal task / raw dataset)
-    trajectories/<iid>_<uuid>/trajectory/<model>/run_N/  (normal trajectory)
-    trajectories/<iid>_<uuid>/<iid>_harbor/task/         (harbor-format task)
-    trajectories/<iid>_<uuid>/<iid>_harbor/trajectory/   (harbor-format trajectory)
-  where <iid> = <org>__<repo>-<number> and <uuid> is the harbor instance UUID
-  (read from harbor's result.json, falling back to a fresh UUIDv4).
+  Stages under <data-dir>/ with two top-level dirs keyed by the dataset uuid:
+    dataset/<uuid>/      (contents of harbor task/)
+    trajectory/<uuid>/   (contents of harbor trajectory/)
+  <uuid> is the dataset record's required uuid field. Local eval_outputs/ on
+  disk is left untouched -- only the harbor output is published.
   --data-dir PATH           Local clone of the dataset repo (created on start if missing)
                             (default: <script dir>/../milo-bench-dataset/)
   --data-repo URL           Dataset repo URL; cloned to --data-dir on start if missing,
@@ -145,9 +143,10 @@ Compression (experimental):
                             optional 'compression' extra: `uv sync --extra compression`)
                             on --headroom-port and rewrites the LLM config's base_url to
                             route through it. The original base_url is forwarded as the
-                            upstream. Trajectories from compressed runs are published to
-                            trajectories/<iid>_<uuid>__c-headroom/ (the baseline slug is
-                            unchanged). NOTE: compressed runs are NOT directly comparable
+                            upstream. Compressed and baseline runs share the same
+                            dataset/<uuid>/ + trajectory/<uuid>/ directories, so a
+                            compressed run OVERWRITES a prior baseline (and vice
+                            versa). NOTE: compressed runs are NOT directly comparable
                             to baseline runs -- treat compression as an evaluation
                             dimension, not a free win.
   --headroom-port PORT      Local port for the headroom proxy             [default: 8787]
@@ -311,15 +310,11 @@ mkdir -p "$LOG_DIR"
 RESULTS_FILE="$(mktemp "${TMPDIR:-/tmp}/run_eval_results.XXXXXX")"
 
 # ── Publish setup: clone/sync the dataset repo, per-dataset commit, single push ──
-# Layout at the data-dir's git toplevel: a single top-level trajectories/ dir,
-# one folder per instance keyed by <iid>_<uuid>, each with subdirs:
-#   trajectories/<iid>_<uuid>/_dataset/<iid>.jsonl       (normal task / raw dataset)
-#   trajectories/<iid>_<uuid>/trajectory/<model>/run_N/  (normal trajectory)
-#   trajectories/<iid>_<uuid>/<iid>_harbor/task/         (harbor-format task)
-#   trajectories/<iid>_<uuid>/<iid>_harbor/trajectory/   (harbor-format trajectory)
-# where <iid> = <org>__<repo>-<number>; <uuid> is the harbor instance UUID
-# (read from harbor's result.json id field, falling back to a fresh UUIDv4). Each
-# dataset, once staged, produces a single local commit; after all datasets finish
+# Layout at the data-dir's git toplevel: two top-level dirs keyed by dataset uuid:
+#   dataset/<uuid>/      (contents of harbor task/)
+#   trajectory/<uuid>/   (contents of harbor trajectory/)
+# <uuid> is the dataset record's required uuid field. Each dataset, once staged,
+# produces a single local commit; after all datasets finish
 # every accumulated commit is shipped in one push. The dataset repo (default
 # https://github.com/Ethara-Ai/milo-bench-dataset) is cloned into --data-dir on
 # startup if missing, then fetch+rebased onto origin/<branch> before any work so
@@ -508,9 +503,8 @@ if [[ -z "$DATA_REPO_ROOT" ]]; then
 fi
 
 PUBLISH_BASE="$DATA_REPO_ROOT"
-TRAJ_PUB_DIR="${PUBLISH_BASE}/trajectories"
-mkdir -p "$TRAJ_PUB_DIR"
-echo "Publish base: $PUBLISH_BASE  (trajectories/<iid>_<uuid>/{_dataset,trajectory,<iid>_harbor})"
+mkdir -p "$PUBLISH_BASE/dataset" "$PUBLISH_BASE/trajectory"
+echo "Publish base: $PUBLISH_BASE  (dataset/<uuid>/{harbor task}, trajectory/<uuid>/{harbor trajectory})"
 
 if [[ "$DATA_CLONE_OK" == true ]]; then
     GIT_BRANCH="${GIT_BRANCH:-$(git -C "$DATA_REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)}"
@@ -695,14 +689,10 @@ with open(out_path, "w") as f:
 PYSCRIPT
 }
 
-# Stage this dataset under a per-instance folder keyed by <iid>_<uuid> and make a
-# single local commit for it. The push for ALL commits happens once at end of run.
-# Commit-lock serializes parallel subshells writing to the shared git index. Layout:
-#   trajectories/<iid>_<uuid>/_dataset/<iid>.jsonl       (normal task / raw dataset)
-#   trajectories/<iid>_<uuid>/trajectory/<model>/run_N/  (normal trajectory)
-#   trajectories/<iid>_<uuid>/<iid>_harbor/task/         (harbor-format task)
-#   trajectories/<iid>_<uuid>/<iid>_harbor/trajectory/   (harbor-format trajectory)
+# Commit-lock serializes parallel subshells writing to the shared git index.
 # $1=tag  $2=instance_id  $3=dataset_path  $4=run_base(model dir)  $5=harbor_out  $6=model  $7=dataset_uuid
+# Args 3,4,6 (dataset_path, run_base, model) are accepted for signature stability
+# but no longer copied to the staged push.
 stage_dataset() {
     local tag="$1" iid="$2" dataset="$3" run_base="$4" harbor_out="$5" model="$6" dataset_uuid="$7"
     [[ -z "${PUBLISH_BASE:-}" ]] && return 0
@@ -712,30 +702,29 @@ stage_dataset() {
         return 1
     fi
 
-    local slug="${iid}_${dataset_uuid}"
-    [[ "$COMPRESSION" != "none" ]] && slug="${slug}__c-${COMPRESSION}"
-    local inst="$TRAJ_PUB_DIR/$slug"
-    local d_dataset="$inst/_dataset"
-    local d_traj="$inst/trajectory"
-    local d_harbor="$inst/${iid}_harbor"
-    mkdir -p "$d_dataset" "$d_traj" "$d_harbor"
+    local uuid="$dataset_uuid"
+    local d_dataset="$PUBLISH_BASE/dataset/$uuid"
+    local d_traj="$PUBLISH_BASE/trajectory/$uuid"
 
-    cp -f "$dataset" "$d_dataset/${iid}.jsonl" 2>/dev/null || log "data: WARN could not copy dataset for $iid"
-    if [[ -d "$run_base" ]]; then
-        rm -rf "$d_traj/$model"; mkdir -p "$d_traj/$model"
-        cp -R "$run_base/." "$d_traj/$model/" 2>/dev/null || log "data: WARN could not copy normal trajectory for $iid"
-        # eval_files/ contains CLONED repos (each with its own .git). Without this,
-        # `git add` would record them as empty submodule gitlinks (mode 160000)
-        # instead of their files. Strip .git from the STAGED COPY (originals under
-        # eval_outputs/ are untouched) so the real source gets committed + pushed.
-        find "$d_traj/$model" -name .git -prune -exec rm -rf {} + 2>/dev/null || true
+    if [[ -d "$harbor_out/task" ]]; then
+        rm -rf "$d_dataset"; mkdir -p "$d_dataset"
+        # eval_files/ inside harbor task can contain CLONED repos (each with their own .git).
+        # Without stripping, `git add` records empty submodule gitlinks (mode 160000) instead
+        # of files. Originals under eval_outputs/ are untouched.
+        cp -R "$harbor_out/task/." "$d_dataset/" 2>/dev/null || log "data: WARN could not copy harbor task for $iid (uuid=$uuid)"
+        find "$d_dataset" -name .git -prune -exec rm -rf {} + 2>/dev/null || true
+    else
+        log "data: WARN harbor task dir missing at $harbor_out/task for $iid"
     fi
-    if [[ -d "$harbor_out" ]]; then
-        rm -rf "$d_harbor"; mkdir -p "$d_harbor"
-        cp -R "$harbor_out/." "$d_harbor/" 2>/dev/null || true
-        find "$d_harbor" -name .git -prune -exec rm -rf {} + 2>/dev/null || true
+
+    if [[ -d "$harbor_out/trajectory" ]]; then
+        rm -rf "$d_traj"; mkdir -p "$d_traj"
+        cp -R "$harbor_out/trajectory/." "$d_traj/" 2>/dev/null || log "data: WARN could not copy harbor trajectory for $iid (uuid=$uuid)"
+        find "$d_traj" -name .git -prune -exec rm -rf {} + 2>/dev/null || true
+    else
+        log "data: WARN harbor trajectory dir missing at $harbor_out/trajectory for $iid"
     fi
-    log "data: staged $slug (_dataset, trajectory, ${iid}_harbor) -> $PUBLISH_BASE"
+    log "data: staged uuid=$uuid (dataset/, trajectory/) <- iid=$iid -> $PUBLISH_BASE"
 
     # GitHub's hard 100 MiB per-file limit would reject the WHOLE push. Drop large
     # files from THIS staged copy (originals under eval_outputs/ are untouched).
@@ -747,8 +736,8 @@ stage_dataset() {
         log "data: SKIP $_bigf (${_bigsz} bytes >= 100 MiB GitHub limit)"
         rm -f "$_bigf" 2>/dev/null || true
         _bign=$((_bign+1))
-    done < <(find "$inst" -type f -size +$((LARGE_LIMIT_BYTES - 1))c 2>/dev/null)
-    [[ $_bign -gt 0 ]] && log "data: skipped $_bign file(s) >=100MiB for $iid (not pushed)"
+    done < <(find "$d_dataset" "$d_traj" -type f -size +$((LARGE_LIMIT_BYTES - 1))c 2>/dev/null)
+    [[ $_bign -gt 0 ]] && log "data: skipped $_bign file(s) >=100MiB for uuid=$uuid (not pushed)"
 
     # Per-dataset local commit. Serialized via a separate mkdir lock (independent
     # of $PUSH_LOCK) so parallel subshells don't race on the shared git index.
@@ -759,19 +748,19 @@ stage_dataset() {
             sleep 0.1
             _commit_waited=$((_commit_waited + 1))
             if [[ $_commit_waited -gt 6000 ]]; then
-                log "data: WARN could not acquire commit lock for $slug after ~10min; skipping commit"
+                log "data: WARN could not acquire commit lock for uuid=$uuid after ~10min; skipping commit"
                 return 0
             fi
         done
-        git -C "$DATA_REPO_ROOT" add -- "trajectories/$slug" >/dev/null 2>&1 || true
-        if git -C "$DATA_REPO_ROOT" diff --cached --quiet -- "trajectories/$slug" 2>/dev/null; then
-            log "data: $slug already committed or no changes"
+        git -C "$DATA_REPO_ROOT" add -- "dataset/$uuid" "trajectory/$uuid" >/dev/null 2>&1 || true
+        if git -C "$DATA_REPO_ROOT" diff --cached --quiet -- "dataset/$uuid" "trajectory/$uuid" 2>/dev/null; then
+            log "data: uuid=$uuid already committed or no changes"
         elif git -C "$DATA_REPO_ROOT" \
                   -c user.name="$GIT_NAME" -c user.email="$GIT_EMAIL" \
-                  commit -q -m "data: $slug" -- "trajectories/$slug" >/dev/null 2>&1; then
-            log "data: committed $slug"
+                  commit -q -m "data: $uuid ($iid)" -- "dataset/$uuid" "trajectory/$uuid" >/dev/null 2>&1; then
+            log "data: committed uuid=$uuid"
         else
-            log "data: WARN commit failed for $slug; staged but uncommitted"
+            log "data: WARN commit failed for uuid=$uuid; staged but uncommitted"
         fi
         rmdir "$_commit_lock" 2>/dev/null || rm -rf "$_commit_lock" 2>/dev/null
     fi
