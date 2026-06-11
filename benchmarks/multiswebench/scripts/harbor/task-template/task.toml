@@ -30,7 +30,10 @@ difficulty = "{difficulty}"
 category = "software-development"
 
 [verifier]
-network_mode = "public"
+# V-001 (partial): verifier runs the deterministic post-fix test cmd and does not
+# need external network; closing this half seals oracle-solution exfiltration via
+# the verifier path. Agent stays "public" per user m0540 (trajectory needs github).
+network_mode = "none"
 timeout_sec = {verifier_timeout}
 
 [agent]

@@ -222,8 +222,19 @@ def _heal_fork_imports() -> None:
 
     STOPGAP — the clean fix is to repair those __init__ imports in the fork.
     """
+    import importlib.util
     import re
     import subprocess
+
+    # Refuse to rewrite anything outside the multi_swe_bench package tree; the
+    # heal target must live inside the fork we are patching. Without this guard,
+    # a crafted upstream traceback could steer arbitrary writes (S-001).
+    spec = importlib.util.find_spec("multi_swe_bench")
+    if spec is None or not spec.submodule_search_locations:
+        return
+    heal_roots = tuple(
+        Path(loc).resolve() for loc in spec.submodule_search_locations
+    )
 
     for _ in range(80):
         probe = subprocess.run(
@@ -240,15 +251,21 @@ def _heal_fork_imports() -> None:
         )
         if not frames:
             return  # unparseable — let the real import below surface the error
-        path, lineno = frames[-1][0], int(frames[-1][1])
+        path_str, lineno = frames[-1][0], int(frames[-1][1])
         try:
-            lines = Path(path).read_text(encoding="utf-8").split("\n")
+            target = Path(path_str).resolve()
+        except OSError:
+            return
+        if not any(target.is_relative_to(root) for root in heal_roots):
+            return
+        try:
+            lines = target.read_text(encoding="utf-8").split("\n")
         except OSError:
             return
         if not (0 < lineno <= len(lines)):
             return
         lines[lineno - 1] = "# [milo-heal] " + lines[lineno - 1]
-        Path(path).write_text("\n".join(lines), encoding="utf-8")
+        target.write_text("\n".join(lines), encoding="utf-8")
 
 
 _heal_fork_imports()

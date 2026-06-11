@@ -10,6 +10,7 @@ Usage:
 """
 
 import argparse
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -30,7 +31,7 @@ def run_multi_swebench_evaluation(
     split: str | None = None,
     input_file: str | None = None,
     lang: str = "java",
-):
+) -> int | None:
     """
     Run Multi-SWE-Bench evaluation using the predictions file.
 
@@ -40,7 +41,9 @@ def run_multi_swebench_evaluation(
         input_file: Path to the original OpenHands output.jsonl file
 
     Returns:
-        Dictionary containing evaluation results
+        The harness subprocess returncode, or None if a Python-level
+        exception was caught (soft-fail contract: caller classifies the
+        outcome and decides whether downstream side effects should fire).
     """
     logger.info(f"Running Multi-SWE-Bench evaluation on {input_file}")
 
@@ -87,8 +90,7 @@ def run_multi_swebench_evaluation(
 
         logger.info(f"Evaluation command: {' '.join(cmd)}")
 
-        # Run with real-time output streaming
-        result = subprocess.run(cmd, cwd=work_dir)
+        result = subprocess.run(cmd, cwd=work_dir, check=False)
 
         logger.info(f"Return code: {result.returncode}")
 
@@ -97,10 +99,13 @@ def run_multi_swebench_evaluation(
             print(f"ERROR: {error_msg}")
             logger.error(error_msg)
 
+        return result.returncode
+
     except Exception as e:
         error_msg = f"Error running evaluation: {e}"
         print(f"ERROR: {error_msg}")
         logger.error(error_msg)
+        return None
 
 
 def main():
@@ -125,9 +130,8 @@ def main():
 
     args = parser.parse_args()
 
-    # Run evaluation if not skipped
     if not args.skip_evaluation:
-        run_multi_swebench_evaluation(
+        returncode = run_multi_swebench_evaluation(
             args.dataset, args.split, args.input_file, args.lang
         )
 
@@ -137,17 +141,41 @@ def main():
             / "dataset"
             / "final_report.json"
         )
-        logger.info(f"Results saved to {results_file}")
+        logger.info(f"Expected results file: {results_file}")
 
-        # Move the report file to the output location
         output_report_path = Path(args.input_file).with_suffix(".report.json")
-        shutil.move(str(results_file), str(output_report_path))
-        logger.info(f"Report moved to {output_report_path}")
 
-        # Update Laminar datapoints with evaluation scores
-        LaminarService.get().update_evaluation_scores(
-            str(args.input_file), str(output_report_path)
-        )
+        if returncode == 0 and results_file.exists():
+            outcome = "success"
+        elif returncode == 0:
+            outcome = "no_report"
+        else:
+            outcome = "crashed"
+
+        if outcome == "success":
+            shutil.move(str(results_file), str(output_report_path))
+            logger.info(f"Report moved to {output_report_path}")
+
+            LaminarService.get().update_evaluation_scores(
+                str(args.input_file), str(output_report_path)
+            )
+        else:
+            tombstone = output_report_path.with_suffix(".failed.json")
+            tombstone.write_text(
+                json.dumps(
+                    {
+                        "outcome": outcome,
+                        "returncode": returncode,
+                        "results_file_present": results_file.exists(),
+                    },
+                    indent=2,
+                )
+            )
+            logger.error(
+                "Evaluation produced no usable report (outcome=%s); tombstone at %s",
+                outcome,
+                tombstone,
+            )
 
 
 if __name__ == "__main__":

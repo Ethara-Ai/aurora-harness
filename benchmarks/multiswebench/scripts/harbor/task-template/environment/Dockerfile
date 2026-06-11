@@ -1,5 +1,9 @@
 FROM debian:bookworm-slim AS python-fetch
 
+# S-002 (partial): pipefail makes the curl|tar pipeline fail loud on curl errors;
+# SHA256 verification deferred per user constraint (curl|tar format required).
+SHELL ["/bin/bash", "-eo", "pipefail", "-c"]
+
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates curl && \
     rm -rf /var/lib/apt/lists/*
@@ -31,6 +35,9 @@ RUN apt-get update && \
         ca-certificates && \
     rm -rf /var/lib/apt/lists/* 
     
+# V-002: actual SHA injected by converter.py at render time from
+# pyproject.toml [tool.uv.sources].multi-swe-bench.rev. The "main" default is
+# kept only as a defensive fallback in case the template is invoked manually.
 ARG MSB_REF=main
 RUN /opt/python/bin/python3 -m pip install --no-cache-dir \
     "multi-swe-bench @ git+https://github.com/Ethara-Ai/multi-swe-bench.git@${MSB_REF}"
