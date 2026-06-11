@@ -8,15 +8,40 @@ import re
 import shutil
 import string
 import sys
+import tomllib
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-
 TEMPLATE_DIR = Path(__file__).parent / "task-template"
 DEFAULT_ECR_PREFIX = "426628337772.dkr.ecr.ap-south-1.amazonaws.com/rfp-coding-q1-tag"
-DEFAULT_MSB_REF = "main"
+
+
+def read_msb_ref_from_pyproject() -> str:
+    # V-002: DEFAULT_MSB_REF must not silently fall back to "main".
+    # AGENTS.md mandates reproducible refs across the consumer wiring;
+    # the converter resolves the pinned rev from pyproject.toml at import
+    # time so a stale fork ref fails loudly instead of producing drift.
+    pyproject_path = Path(__file__).resolve().parents[4] / "pyproject.toml"
+    data = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
+    rev = (
+        data.get("tool", {})
+            .get("uv", {})
+            .get("sources", {})
+            .get("multi-swe-bench", {})
+            .get("rev")
+    )
+    if not rev or rev == "main":
+        raise RuntimeError(
+            f"pyproject.toml at {pyproject_path} must pin "
+            f"[tool.uv.sources.multi-swe-bench].rev to a commit SHA "
+            f"(found: {rev!r})"
+        )
+    return rev
+
+
+DEFAULT_MSB_REF = read_msb_ref_from_pyproject()
 
 RESOURCE_CONFIG: dict[str, dict[str, dict[str, Any]]] = {
     "c": {
@@ -138,12 +163,10 @@ LANGUAGE_COMMANDS: dict[str, tuple[str, str]] = {
     "c++": ("g++ -o reproduce reproduce.cpp && ./reproduce", "make test"),
 }
 
-
 def read_text(path: Path) -> str:
     if not path.exists():
         raise FileNotFoundError(f"Missing file: {path}")
     return path.read_text(encoding="utf-8")
-
 
 def render_literal(template_text: str, **replacements: str) -> str:
     def _replace_match(match: re.Match[str]) -> str:
@@ -152,13 +175,11 @@ def render_literal(template_text: str, **replacements: str) -> str:
 
     return re.sub(r"\{(\w+)\}", _replace_match, template_text)
 
-
 def sanitize_task_id(instance_id: str) -> str:
     sanitized = instance_id.replace("/", "_").replace(":", "_").replace("-", "")
     if not sanitized[:1].isalpha():
         sanitized = f"task_{sanitized}"
     return sanitized.lower()
-
 
 def map_difficulty(
     time_estimate: str | None = None, patch_lines: int | None = None
@@ -171,10 +192,8 @@ def map_difficulty(
         return "hard"
     return "medium"
 
-
 def to_ecr_image(ecr_prefix: str, org: str, repo: str, pr: int) -> str:
     return f"{ecr_prefix}/{org}_m_{repo}:pr-{pr}"
-
 
 def get_resource_config(language: str, repo: str) -> dict[str, Any]:
     lang_key = language.lower()
@@ -187,12 +206,10 @@ def get_resource_config(language: str, repo: str) -> dict[str, Any]:
             return cfg
     return lang_cfg.get("_default", RESOURCE_CONFIG["_default"]["_default"])
 
-
 def get_language_commands(language: str) -> tuple[str, str]:
     return LANGUAGE_COMMANDS.get(
         language.lower(), ("<appropriate run command>", "<appropriate test command>")
     )
-
 
 def iso8601_microseconds(ts: str | None) -> str:
     if not ts:
@@ -213,7 +230,6 @@ def iso8601_microseconds(ts: str | None) -> str:
         .replace("+00:00", "Z")
     )
 
-
 def iso8601_microseconds_offset(ts: str | None) -> str:
     if not ts:
         return datetime.now(timezone.utc).isoformat(timespec="microseconds")
@@ -225,18 +241,15 @@ def iso8601_microseconds_offset(ts: str | None) -> str:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc).isoformat(timespec="microseconds")
 
-
 def provider_name_split(model: str) -> tuple[str, str]:
     if "." in model:
         provider, _, name = model.partition(".")
         return provider, name
     return "", model
 
-
 def random_trial_suffix(length: int = 7) -> str:
     alphabet = string.ascii_letters + string.digits
     return "".join(random.choice(alphabet) for _ in range(length))
-
 
 def sha256_of_dir(root: Path) -> str:
     hasher = hashlib.sha256()
@@ -249,7 +262,6 @@ def sha256_of_dir(root: Path) -> str:
         hasher.update(path.read_bytes())
         hasher.update(b"\x00")
     return hasher.hexdigest()
-
 
 def load_dataset_record(dataset_dir: Path, instance_id: str) -> dict[str, Any] | None:
     candidate = dataset_dir / f"{instance_id}.jsonl"
@@ -267,7 +279,6 @@ def load_dataset_record(dataset_dir: Path, instance_id: str) -> dict[str, Any] |
                 return record
     return None
 
-
 def parse_base_image_from_dockerfile(dockerfile_path: Path) -> str | None:
     if not dockerfile_path.exists():
         return None
@@ -279,7 +290,6 @@ def parse_base_image_from_dockerfile(dockerfile_path: Path) -> str | None:
                 return tokens[1]
     return None
 
-
 def _normalize_resolved_issues(value: Any) -> list[dict[str, Any]]:
     if isinstance(value, list):
         return [item for item in value if isinstance(item, dict)]
@@ -288,7 +298,6 @@ def _normalize_resolved_issues(value: Any) -> list[dict[str, Any]]:
         if isinstance(items, list):
             return [item for item in items if isinstance(item, dict)]
     return []
-
 
 def build_problem_statement(resolved_issues: Any, max_chars: int | None = None) -> str:
     issues = _normalize_resolved_issues(resolved_issues)
@@ -327,7 +336,6 @@ def build_problem_statement(resolved_issues: Any, max_chars: int | None = None) 
         text = "\n\n".join(kept)
     return text
 
-
 def derive_api_request_times_msec(history: list[dict[str, Any]]) -> list[float]:
     timestamps: list[datetime] = []
     for entry in history:
@@ -349,7 +357,6 @@ def derive_api_request_times_msec(history: list[dict[str, Any]]) -> list[float]:
         if delta_ms >= 0:
             deltas.append(delta_ms)
     return deltas
-
 
 def load_phase_times(run_dir: Path) -> dict[str, dict[str, str]]:
     path = run_dir / "phase_times.json"
@@ -375,7 +382,6 @@ def load_phase_times(run_dir: Path) -> dict[str, dict[str, str]]:
             }
     return phases
 
-
 def _extract_text_blocks(blocks: Any) -> str:
     parts: list[str] = []
     if isinstance(blocks, list):
@@ -387,7 +393,6 @@ def _extract_text_blocks(blocks: Any) -> str:
     elif isinstance(blocks, str):
         parts.append(blocks)
     return "\n".join(parts)
-
 
 def build_atif_trajectory(
     history: list[dict[str, Any]],
@@ -545,7 +550,6 @@ def build_atif_trajectory(
         "final_metrics": final_metrics,
     }
 
-
 def _parse_tool_arguments(entry: dict[str, Any]) -> dict[str, Any]:
     tool_call = entry.get("tool_call") or {}
     args_raw = tool_call.get("arguments") if isinstance(tool_call, dict) else None
@@ -558,7 +562,6 @@ def _parse_tool_arguments(entry: dict[str, Any]) -> dict[str, Any]:
     if isinstance(args_raw, dict):
         return args_raw
     return {}
-
 
 def _index_observations_by_tcid(
     history: list[dict[str, Any]],
@@ -574,7 +577,6 @@ def _index_observations_by_tcid(
             by_tcid[tcid] = entry
     return by_tcid
 
-
 def _observation_text(obs: dict[str, Any] | None) -> str:
     if not isinstance(obs, dict):
         return ""
@@ -587,7 +589,6 @@ def _observation_text(obs: dict[str, Any] | None) -> str:
         if isinstance(block, dict) and block.get("type") == "text":
             parts.append(str(block.get("text") or ""))
     return "\n".join(parts)
-
 
 def _action_input_text(tool_name: str, arguments: dict[str, Any]) -> str:
     if tool_name == "terminal":
@@ -609,7 +610,6 @@ def _action_input_text(tool_name: str, arguments: dict[str, Any]) -> str:
     if not summary:
         return ""
     return f"# {tool_name}: {summary}\n"
-
 
 def synthesize_recording_cast(
     history: list[dict[str, Any]], started_at_iso: str
@@ -673,7 +673,6 @@ def synthesize_recording_cast(
 
     return "\n".join(lines) + "\n"
 
-
 def synthesize_pane_dump(history: list[dict[str, Any]], max_lines: int = 200) -> str:
     obs_by_tcid = _index_observations_by_tcid(history)
     rows: list[str] = []
@@ -719,7 +718,6 @@ def synthesize_pane_dump(history: list[dict[str, Any]], max_lines: int = 200) ->
         rows = rows[-max_lines:]
     return "\n".join(rows) + "\n"
 
-
 def inject_dockerfile_language_patches(dockerfile_text: str, language: str) -> str:
     marker = "# marker for language-specific fixes"
     lang = language.lower()
@@ -731,20 +729,29 @@ def inject_dockerfile_language_patches(dockerfile_text: str, language: str) -> s
             "sed -i '/buster-updates/d' /etc/apt/sources.list; fi"
         )
         anchor = f"{marker}\n\nRUN apt-get update &&"
-        if anchor in dockerfile_text:
-            return dockerfile_text.replace(
-                anchor,
-                f"{marker}\n\n{buster_block}\n\nRUN apt-get update &&",
+        if anchor not in dockerfile_text:
+            # Q-002 m0691: the previous silent-no-op produced half-patched c++
+            # images when the template marker moved. Raising forces the template
+            # and patcher to stay in lock-step.
+            raise RuntimeError(
+                f"c++ Dockerfile template missing anchor: {anchor!r}"
             )
+        return dockerfile_text.replace(
+            anchor,
+            f"{marker}\n\n{buster_block}\n\nRUN apt-get update &&",
+        )
     if lang == "java":
         anchor = f"{marker}\n\nRUN apt-get update &&"
-        if anchor in dockerfile_text:
-            return dockerfile_text.replace(
-                anchor,
-                f"{marker}\n\nRUN apt-get update --allow-releaseinfo-change &&",
+        if anchor not in dockerfile_text:
+            # Q-002 m0691: same rationale as c++.
+            raise RuntimeError(
+                f"java Dockerfile template missing anchor: {anchor!r}"
             )
+        return dockerfile_text.replace(
+            anchor,
+            f"{marker}\n\nRUN apt-get update --allow-releaseinfo-change &&",
+        )
     return dockerfile_text
-
 
 def build_task(
     instance_id: str,
@@ -894,10 +901,8 @@ def build_task(
         "pr_number": pr_number,
     }
 
-
 def model_short(model: str) -> str:
     return model.replace("_", "-").replace("/", "-")
-
 
 def short_agent_tag(model: str) -> str:
     ml = model.lower()
@@ -915,7 +920,6 @@ def short_agent_tag(model: str) -> str:
         return "glm"
     return ml.split("-")[0] or "agent"
 
-
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
@@ -927,7 +931,6 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
         records.append(json.loads(raw))
     return records
 
-
 def load_sidecar_metadata(run_dir: Path) -> dict[str, Any]:
     path = run_dir / "metadata.json"
     if not path.exists():
@@ -937,7 +940,6 @@ def load_sidecar_metadata(run_dir: Path) -> dict[str, Any]:
     except (json.JSONDecodeError, OSError):
         return {}
     return raw if isinstance(raw, dict) else {}
-
 
 def build_trajectory(
     run_dir: Path,
@@ -1264,13 +1266,13 @@ def build_trajectory(
         test_stdout_text, encoding="utf-8"
     )
 
-
 def convert_instance(
     instance_dir: Path,
     dataset_dir: Path,
     out_root: Path,
     ecr_prefix: str,
     task_uuid: str,
+    nest_under_id: bool = False,
 ) -> None:
     instance_id_from_path = instance_dir.name
     instance_id_normalized = instance_id_from_path.replace("__", "__")
@@ -1316,7 +1318,10 @@ def convert_instance(
             / f"pr-{pr_number}"
         )
 
-    out_dir = out_root
+    # Q-001 m0667: when run_base_dir contains multiple instances, nest each
+    # under instance_id so trajectory dirs from different PRs do not collide
+    # in out_root. Default False preserves single-instance call semantics.
+    out_dir = out_root / instance_id_normalized if nest_under_id else out_root
     out_dir.mkdir(parents=True, exist_ok=True)
     task_meta = build_task(
         instance_id_normalized,
@@ -1343,7 +1348,6 @@ def convert_instance(
                 task_meta,
                 task_uuid,
             )
-
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
@@ -1402,7 +1406,7 @@ def main(argv: list[str] | None = None) -> int:
 
     instance_dirs: list[Path] = []
     if run_base_dir.is_dir() and any(
-        child.is_dir() and (child / "run_1").exists() or child.name.startswith("run_")
+        child.is_dir() and ((child / "run_1").exists() or child.name.startswith("run_"))
         for child in run_base_dir.iterdir()
     ):
         instance_dirs = [run_base_dir]
@@ -1414,11 +1418,18 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             instance_dirs.append(child)
 
+    nest = len(instance_dirs) > 1
     for instance_dir in instance_dirs:
-        convert_instance(instance_dir, dataset_dir, out_root, args.ecr_prefix, args.task_uuid)
+        convert_instance(
+            instance_dir,
+            dataset_dir,
+            out_root,
+            args.ecr_prefix,
+            args.task_uuid,
+            nest_under_id=nest,
+        )
 
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())
