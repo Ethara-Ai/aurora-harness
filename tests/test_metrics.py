@@ -262,6 +262,8 @@ def _get_test_instance_for_benchmark(benchmark_name: str) -> EvalInstance:
                 "base_commit": "abc123",
                 "number": 1,
                 "problem_statement": "Test problem",
+                # Required by run_infer.evaluate_instance (multiswebench).
+                "uuid": "test-uuid-0001",
             },
         )
     else:

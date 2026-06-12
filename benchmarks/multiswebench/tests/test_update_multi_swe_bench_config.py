@@ -16,9 +16,7 @@ def fake_convert(monkeypatch):
         calls.append((str(input_path), str(output_path)))
         Path(output_path).write_text("", encoding="utf-8")
 
-    monkeypatch.setattr(
-        update_multi_swe_bench_config, "convert_to_eval_format", _fake
-    )
+    monkeypatch.setattr(update_multi_swe_bench_config, "convert_to_eval_format", _fake)
     return calls
 
 
@@ -93,9 +91,7 @@ def test_config_dataset_files_carries_argument(fake_convert, tmp_path: Path):
     assert cfg["dataset_files"] == ["/path/to/dataset.jsonl"]
 
 
-def test_config_patch_files_points_to_converted_output(
-    fake_convert, tmp_path: Path
-):
+def test_config_patch_files_points_to_converted_output(fake_convert, tmp_path: Path):
     _, _, cfg = _run(tmp_path)
     assert len(cfg["patch_files"]) == 1
     assert cfg["patch_files"][0].endswith("output_converted.jsonl")
@@ -107,6 +103,42 @@ def test_fix_patch_run_cmd_is_semicolon_chained_bash(fake_convert, tmp_path: Pat
     assert cmd.startswith('bash -c "')
     assert "apt update ; apt install -y patch ;" in cmd
     assert "/home/fix-run.sh" in cmd
+
+
+def test_fix_patch_run_cmd_uses_escalating_apply_not_max_fuzz(
+    fake_convert, tmp_path: Path
+):
+    """V-001: the verifier must not force-apply patches with maximal fuzz.
+
+    The apply helper is base64-shipped, so decode it and assert the escalation
+    (exact -> 3way -> reduced-fuzz) plus auditability, rather than the previous
+    silent ``patch --fuzz=5`` rewrite.
+    """
+    import base64
+    import re
+
+    _, _, cfg = _run(tmp_path)
+    cmd = cfg["fix_patch_run_cmd"]
+
+    # The dangerous maximal-fuzz rewrite must be gone.
+    assert "fuzz=5" not in cmd
+
+    # Helper is shipped via `echo <b64> | base64 -d`; recover and inspect it.
+    m = re.search(r"echo ([A-Za-z0-9+/=]+) \| base64 -d", cmd)
+    assert m, "expected a base64-shipped apply helper in fix_patch_run_cmd"
+    helper = base64.b64decode(m.group(1)).decode()
+
+    # Escalation order: exact git apply, then 3way, then reduced fuzz.
+    assert "git apply --check" in helper
+    assert "git apply --3way" in helper
+    assert "--fuzz=2" in helper
+    # Fuzzy applies must be auditable (announced + rejects captured).
+    assert "FUZZY" in helper
+    assert "--reject-file" in helper
+
+    # Both patches are still applied, in order, via the helper.
+    assert "/home/apply_patch.sh /home/test.patch" in cmd
+    assert "/home/apply_patch.sh /home/fix.patch" in cmd
 
 
 def test_config_path_parent_directory_created(fake_convert, tmp_path: Path):

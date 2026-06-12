@@ -21,6 +21,7 @@ from benchmarks.multiswebench.scripts.harbor.converter import (
     sanitize_task_id,
     sha256_of_dir,
     to_ecr_image,
+    validate_instance_id,
 )
 
 
@@ -255,3 +256,39 @@ def test_sha256_of_dir_ignores_subdir_paths_consistently(tmp_path: Path):
     h1 = sha256_of_dir(tmp_path)
     h2 = sha256_of_dir(tmp_path)
     assert h1 == h2
+
+
+@pytest.mark.parametrize(
+    "valid_id",
+    [
+        "apache__commons-cli__CLI-291",
+        "o__r-1",
+        "octo__demo-5",
+        "no-underscore-here",
+        "noHyphen",
+        "a.b_c-1",
+    ],
+)
+def test_validate_instance_id_accepts_real_ids(valid_id: str):
+    # S-002: real instance ids pass through unchanged.
+    assert validate_instance_id(valid_id) == valid_id
+
+
+@pytest.mark.parametrize(
+    "bad_id",
+    [
+        "..",
+        "../evil",
+        "a/../../etc/passwd",
+        "foo/bar",
+        "a\\b",
+        "/abs/path",
+        "ok/..",
+        "",
+        "has space",
+    ],
+)
+def test_validate_instance_id_rejects_traversal_and_separators(bad_id: str):
+    # S-002: path separators / parent refs / unsafe chars are rejected.
+    with pytest.raises(ValueError, match="path-traversal guard"):
+        validate_instance_id(bad_id)

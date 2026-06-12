@@ -45,7 +45,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-compression = ["headroom-ai>=0.24.0"]
+compression = ["headroom-ai[proxy]>=0.24,<0.25"]
 
 [project.scripts]
 validate-cfg = "benchmarks.scripts.validate_cfg:main"
@@ -119,8 +119,11 @@ openhands-workspace = { workspace = true }
 openhands-agent-server = { workspace = true }
 swt-bench = { git = "https://github.com/logic-star-ai/swt-bench.git", rev = "5fdcd446ff05e248ecfffc19d560a210699f71f8" }
 commit0 = { git = "https://github.com/Ethara-Ai/commit0.git", rev = "1bd6bf353f736278b10b6ec97c1b27afa2ff6c75" }
-multi-swe-bench = { git = "https://github.com/Ethara-Ai/multi-swe-bench.git", rev = "b2034e268e7d120c564c75614812dbf6827fad4c" }
-litellm = { git = "https://github.com/Ethara-Ai/litellm.git", rev = "13e406d6e0fb7a6b95a6f3e0e1618d291f6b326b" }
+multi-swe-bench = { git = "https://github.com/Ethara-Ai/multi-swe-bench.git",  rev = "main" }
+litellm = { git = "https://github.com/Ethara-Ai/litellm.git", branch = "main" }
+
+[tool.uv]
+override-dependencies = ["litellm"]
 
 [tool.uv.workspace]
 members = [

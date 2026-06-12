@@ -31,78 +31,9 @@ import argparse
 import csv
 import json
 import sys
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
-R0 = 20  # absolute regression floor (reward_formula_v2.md §2.4.3)
-_POLLUTION_THRESHOLD: float = 0.8
-_EFF_MIN: int = 3
-_F2P_DRIFT_THRESHOLD: float = 0.3
-
-
-def _bucket_from_raw(test_stage: dict, fix_stage: dict) -> dict[str, set[str]]:
-    """Re-derive gold dicts from raw test_patch/fix_patch arrays.
-
-    Mirrors ``multi_swe_bench/harness/report.py:130-138`` bucketing so lazy
-    re-curation produces the same buckets the upstream harness would have
-    generated without gating on ``valid``.
-    """
-    t_p = set(test_stage.get("passed_tests") or [])
-    t_f = set(test_stage.get("failed_tests") or [])
-    t_s = set(test_stage.get("skipped_tests") or [])
-    f_p = set(fix_stage.get("passed_tests") or [])
-    f_f = set(fix_stage.get("failed_tests") or [])
-
-    buckets: dict[str, set[str]] = {
-        "f2p_tests": set(),
-        "s2p_tests": set(),
-        "n2p_tests": set(),
-        "p2p_tests": set(),
-    }
-    for name in t_p | t_f | t_s | f_p | f_f:
-        in_test_p = name in t_p
-        in_test_f = name in t_f
-        in_test_s = name in t_s
-        in_fix_p = name in f_p
-        observed_in_test = in_test_p or in_test_f or in_test_s
-        if not observed_in_test and in_fix_p:
-            buckets["n2p_tests"].add(name)
-        elif in_test_f and in_fix_p:
-            buckets["f2p_tests"].add(name)
-        elif in_test_s and in_fix_p:
-            buckets["s2p_tests"].add(name)
-        elif in_test_p and in_fix_p:
-            buckets["p2p_tests"].add(name)
-    return buckets
-
-
-def _gold_from_dataset(record: dict) -> tuple[dict[str, set[str]], bool]:
-    gold: dict[str, set[str]] = {
-        "f2p_tests": set((record.get("f2p_tests") or {}).keys()),
-        "s2p_tests": set((record.get("s2p_tests") or {}).keys()),
-        "n2p_tests": set((record.get("n2p_tests") or {}).keys()),
-        "p2p_tests": set((record.get("p2p_tests") or {}).keys()),
-    }
-    if any(gold.values()):
-        return gold, False
-    rebuilt = _bucket_from_raw(
-        record.get("test_patch_result") or {},
-        record.get("fix_patch_result") or {},
-    )
-    return rebuilt, True
-
-
-def _run_sets(report: dict) -> dict[str, set[str]]:
-    """Extract F_p, F_f, F_s, T_p_run from raw arrays. Never reads cached dicts."""
-    test_stage = report.get("test_patch_result") or {}
-    fix_stage = report.get("fix_patch_result") or {}
-    return {
-        "F_p": set(fix_stage.get("passed_tests") or []),
-        "F_f": set(fix_stage.get("failed_tests") or []),
-        "F_s": set(fix_stage.get("skipped_tests") or []),
-        "T_p_run": set(test_stage.get("passed_tests") or []),
-    }
+from benchmarks.multiswebench.scripts.eval.reward_v2g import compute_reward_v2g
 
 
 def _pollution_band(rate: float) -> str:
@@ -111,171 +42,6 @@ def _pollution_band(rate: float) -> str:
     if rate < 0.8:
         return "partial"
     return "heavy"
-
-
-@dataclass
-class RewardV2G:
-    reward: float
-    status: str
-    diagnostics: dict[str, Any]
-
-
-def reward_v2g(
-    dataset_record: dict,
-    report: dict,
-    *,
-    r0: int = R0,
-    pollution_threshold: float = _POLLUTION_THRESHOLD,
-    eff_min: int = _EFF_MIN,
-    f2p_drift_threshold: float = _F2P_DRIFT_THRESHOLD,
-) -> RewardV2G:
-    if not isinstance(dataset_record, dict) or not isinstance(report, dict):
-        return RewardV2G(0.0, "no_signal", {})
-
-    fix_stage = report.get("fix_patch_result") or {}
-    test_stage = report.get("test_patch_result") or {}
-
-    def _drift(stage: dict) -> bool:
-        for k, items_key in (
-            ("passed_count", "passed_tests"),
-            ("failed_count", "failed_tests"),
-            ("skipped_count", "skipped_tests"),
-        ):
-            cnt, items = stage.get(k), stage.get(items_key)
-            if isinstance(cnt, int) and isinstance(items, list) and cnt != len(items):
-                return True
-        return False
-
-    if _drift(fix_stage) or _drift(test_stage):
-        return RewardV2G(0.0, "invalid", {"lang": dataset_record.get("lang")})
-
-    gold, lazy_recurated = _gold_from_dataset(dataset_record)
-    runs = _run_sets(report)
-
-    T_p_baseline = runs["T_p_run"]
-
-    if T_p_baseline and not runs["F_p"] and not runs["F_f"] and not runs["F_s"]:
-        return RewardV2G(0.0, "invalid", {"lang": dataset_record.get("lang")})
-
-    dataset_tpr = dataset_record.get("test_patch_result") or {}
-    T_p_dataset = set(dataset_tpr.get("passed_tests") or [])
-    baseline_drift = len(T_p_baseline ^ T_p_dataset)
-
-    targets = gold["f2p_tests"] | gold["s2p_tests"] | gold["n2p_tests"]
-
-    diag: dict[str, Any] = {
-        "targets_total": len(targets),
-        "gold_p2p_total": len(gold["p2p_tests"]),
-        "t_p_run_total": len(T_p_baseline),
-        "t_p_dataset_total": len(T_p_dataset),
-        "baseline_drift": baseline_drift,
-        "f2s_count": len(gold["f2p_tests"] & runs["F_s"]),
-        "f2p_baseline_pass_count": len(gold["f2p_tests"] & T_p_baseline),
-        "lang": dataset_record.get("lang"),
-        "lazy_recurated": lazy_recurated,
-        "R0": r0,
-    }
-
-    if not targets:
-        diag.update(
-            {
-                "t_baseline_total": 0,
-                "t_eff_total": 0,
-                "pollution_rate": 0.0,
-                "targets_hit": 0,
-                "hits_new": 0,
-                "recall": None,
-                "preserve_set_total": 0,
-                "broken_p2p_count": 0,
-                "unknown_breaks_count": 0,
-                "regression_denom": 0,
-                "penalty_applied": 0.0,
-                "regression_factor": 1.0,
-                "evasion_ratio": 0.0,
-                "regression_channel_active": False,
-            }
-        )
-        return RewardV2G(0.0, "vacuous", diag)
-
-    test_observed = sum(
-        len(test_stage.get(k) or []) for k in ("passed_tests", "failed_tests", "skipped_tests")
-    )
-    if test_observed == 0:
-        diag.update({"t_baseline_total": 0, "t_eff_total": 0, "pollution_rate": 0.0})
-        return RewardV2G(0.0, "invalid", diag)
-
-    T_baseline = targets & T_p_baseline
-    T_eff = targets - T_baseline
-    pollution_rate = len(T_baseline) / max(1, len(targets))
-
-    diag["t_baseline_total"] = len(T_baseline)
-    diag["t_eff_total"] = len(T_eff)
-    diag["pollution_rate"] = pollution_rate
-
-    f2p_baseline_pass_count = diag["f2p_baseline_pass_count"]
-    if gold["f2p_tests"] and f2p_baseline_pass_count / len(gold["f2p_tests"]) >= f2p_drift_threshold:
-        return RewardV2G(0.0, "invalid", diag)
-
-    if pollution_rate >= pollution_threshold and len(T_eff) < eff_min:
-        diag.update(
-            {
-                "targets_hit": len(targets & runs["F_p"]),
-                "hits_new": 0,
-                "recall": None,
-                "preserve_set_total": 0,
-                "broken_p2p_count": 0,
-                "unknown_breaks_count": 0,
-                "regression_denom": 0,
-                "penalty_applied": 0.0,
-                "regression_factor": 1.0,
-                "evasion_ratio": 0.0,
-                "regression_channel_active": False,
-            }
-        )
-        return RewardV2G(0.0, "polluted_dataset", diag)
-
-    preserve_set = gold["p2p_tests"] | T_p_baseline
-    broken = len(preserve_set & (runs["F_f"] | runs["F_s"]))
-    unknown_breaks = len(runs["F_f"] - preserve_set - targets)
-    denom = max(r0, min(max(1, len(preserve_set)), max(1, len(targets))))
-    factor = max(0.0, 1.0 - broken / denom)
-
-    hits_raw = len(targets & runs["F_p"])
-    hits_new = len((targets & runs["F_p"]) - T_p_baseline)
-    assert len(T_eff) > 0
-    recall = hits_new / len(T_eff)
-
-    reward = round(max(0.0, min(1.0, recall * factor)), 2)
-
-    f2p_total = max(1, len(gold["f2p_tests"]))
-    diag.update(
-        {
-            "targets_hit": hits_raw,
-            "hits_new": hits_new,
-            "recall": recall,
-            "preserve_set_total": len(preserve_set),
-            "broken_p2p_count": broken,
-            "unknown_breaks_count": unknown_breaks,
-            "regression_denom": denom,
-            "penalty_applied": broken / denom,
-            "regression_factor": factor,
-            "evasion_ratio": len(gold["f2p_tests"] & runs["F_s"]) / f2p_total,
-            "regression_channel_active": bool(preserve_set),
-        }
-    )
-    return RewardV2G(reward, "scored", diag)
-
-
-def reward_binary(dataset_record: dict, report: dict) -> float:
-    if not isinstance(dataset_record, dict) or not isinstance(report, dict):
-        return 0.0
-    gold, _ = _gold_from_dataset(dataset_record)
-    runs = _run_sets(report)
-    targets = gold["f2p_tests"] | gold["s2p_tests"] | gold["n2p_tests"]
-    preserve_set = gold["p2p_tests"] | runs["T_p_run"]
-    if not targets:
-        return 0.0
-    return 1.0 if targets.issubset(runs["F_p"]) and not (preserve_set & (runs["F_f"] | runs["F_s"])) else 0.0
 
 
 def reward_current_production(report: dict) -> float:
@@ -318,7 +84,9 @@ def _load_dataset_index(dataset_root: Path) -> dict[str, Path]:
 
 
 def _iter_reports(trajectories_root: Path) -> list[Path]:
-    return sorted(trajectories_root.glob("*/*/run_*/eval_files/workdir/*/*/evals/*/report.json"))
+    return sorted(
+        trajectories_root.glob("*/*/run_*/eval_files/workdir/*/*/evals/*/report.json")
+    )
 
 
 def _read_dataset_record(path: Path) -> dict:
@@ -415,13 +183,12 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"skip {report_path}: {exc}", file=sys.stderr)
                 continue
 
-            v2g = reward_v2g(record, report)
-            binary = reward_binary(record, report)
+            result = compute_reward_v2g(record, report)
             current = reward_current_production(report)
 
-            d = v2g.diagnostics
+            d = result["diagnostics"]
             lang = record.get("lang") or "unknown"
-            if v2g.status == "invalid":
+            if result["status"] == "invalid":
                 m2_excluded[lang] = m2_excluded.get(lang, 0) + 1
 
             pollution_rate = d.get("pollution_rate", 0.0) or 0.0
@@ -454,17 +221,16 @@ def main(argv: list[str] | None = None) -> int:
                     "regression_denom": d.get("regression_denom"),
                     "recall": d.get("recall"),
                     "factor": d.get("regression_factor"),
-                    "reward_v2g": v2g.reward,
-                    "reward_binary": binary,
+                    "reward_v2g": result["rewards"]["reward_continuous_v2"],
+                    "reward_binary": result["rewards"]["reward_binary"],
                     "reward_current_x100": current,
-                    "status": v2g.status,
+                    "status": result["status"],
                 }
             )
             rows_written += 1
 
     print(
-        f"wrote {rows_written} rows to {args.out}"
-        f" (missing dataset: {missing_dataset})",
+        f"wrote {rows_written} rows to {args.out} (missing dataset: {missing_dataset})",
         file=sys.stderr,
     )
     if m2_excluded:

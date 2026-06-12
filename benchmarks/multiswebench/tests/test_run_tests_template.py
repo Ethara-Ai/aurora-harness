@@ -44,28 +44,36 @@ def _load_function(tree: ast.Module, name: str, extra_imports: str = "") -> Any:
     return namespace[name]
 
 
-def test_module_top_level_calls_heal_fork_imports(source_tree: ast.Module):
+def test_module_top_level_calls_install_missing_repo_shim(source_tree: ast.Module):
     calls = [
         node
         for node in source_tree.body
         if isinstance(node, ast.Expr)
         and isinstance(node.value, ast.Call)
         and isinstance(node.value.func, ast.Name)
-        and node.value.func.id == "_heal_fork_imports"
+        and node.value.func.id == "_install_missing_repo_shim"
     ]
     assert len(calls) == 1
 
 
-def test_heal_fork_imports_docstring_marks_it_as_stopgap(source_text: str):
-    assert "STOPGAP" in source_text
+def test_repo_import_shim_is_non_persistent(source_text: str):
+    # R-002: the fork-import workaround must NOT rewrite installed package source
+    # on disk. The old disk-mutating healer (and its probe loop / heal markers)
+    # are gone; the shim writes nothing to site-packages.
+    assert "_heal_fork_imports" not in source_text
+    assert "# [milo-heal]" not in source_text
+    assert "range(80)" not in source_text
 
 
-def test_heal_fork_imports_caps_iterations_at_80(source_text: str):
-    assert "range(80)" in source_text
+def test_repo_import_shim_uses_in_memory_meta_path_finder(source_text: str):
+    # The workaround resolves genuinely-missing repo submodules via an in-memory
+    # meta-path finder, not by editing files.
+    assert "sys.meta_path.append" in source_text
+    assert "MetaPathFinder" in source_text
 
 
 def test_run_command_uses_shell_true_with_bin_bash(source_text: str):
-    assert 'shell=True' in source_text
+    assert "shell=True" in source_text
     assert 'executable="/bin/bash"' in source_text
 
 
@@ -119,9 +127,7 @@ def test_get_cpu_limit_swallows_exception_and_returns_2(source_tree, monkeypatch
     assert fn() == 2
 
 
-def test_get_vitest_version_returns_zero_when_no_package_json(
-    source_tree, tmp_path
-):
+def test_get_vitest_version_returns_zero_when_no_package_json(source_tree, tmp_path):
     fn = _load_function(
         source_tree,
         "get_vitest_version",
@@ -202,8 +208,7 @@ def test_patch_c_parallel_build_skips_when_not_c(source_tree, monkeypatch):
     fn = _load_function(
         source_tree,
         "patch_c_parallel_build",
-        "import re\nfrom pathlib import Path\n"
-        "def get_cpu_limit(): return 4",
+        "import re\nfrom pathlib import Path\ndef get_cpu_limit(): return 4",
     )
     called = []
     monkeypatch.setattr(
@@ -259,9 +264,7 @@ def test_patch_test_file_timeouts_skips_non_typescript(source_tree, tmp_path):
     assert list(tmp_path.iterdir()) == []
 
 
-def test_patch_test_file_timeouts_rewrites_this_timeout_calls(
-    source_tree, tmp_path
-):
+def test_patch_test_file_timeouts_rewrites_this_timeout_calls(source_tree, tmp_path):
     fn = _load_function(
         source_tree,
         "patch_test_file_timeouts",

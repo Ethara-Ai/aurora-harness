@@ -46,11 +46,14 @@ jobs:
         run: |
           # Clean up any existing coverage file
           rm -f .coverage
+          # T-001: non-zero coverage gate so coverage cannot silently erode.
+          # Local (non-forked) total is ≈21.5%; floor set conservatively at 15%
+          # to absorb --forked/CI variance. Ratchet up after a few green runs.
           CI=true uv run python -m pytest -vvs \
             --forked \
             --cov=benchmarks \
             --cov-report=term-missing \
-            --cov-fail-under=0 \
+            --cov-fail-under=15 \
             tests/
           # Rename coverage file for upload
           if [ -f .coverage ]; then

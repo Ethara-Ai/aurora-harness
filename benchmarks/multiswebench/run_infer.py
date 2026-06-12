@@ -71,13 +71,15 @@ def get_instruction(
 ) -> str:
     """Generate instruction for the agent."""
     workspace_dir_name = instance["repo"].split("/")[-1]
-    assert metadata.details is not None
+    if metadata.details is None:
+        raise ValueError("metadata.details must be set")
 
     # Detect language from instance data or use metadata language
     language = instance.get("language", metadata.lang).lower()
 
     # Set up Jinja2 environment
-    assert metadata.prompt_path is not None
+    if metadata.prompt_path is None:
+        raise ValueError("metadata.prompt_path must be set")
     prompts_dir = os.path.dirname(metadata.prompt_path)
     template_name = os.path.basename(metadata.prompt_path)
     env = Environment(loader=FileSystemLoader(prompts_dir))
@@ -279,7 +281,8 @@ class MultiSWEBenchEvaluation(Evaluation):
                     push=False,
                 )
                 logger.info(f"Image build output: {output}")
-                assert output.error is None, f"Image build failed: {output.error}"
+                if output.error is not None:
+                    raise RuntimeError(f"Image build failed: {output.error}")
                 if agent_server_image not in output.tags:
                     raise RuntimeError(
                         f"Built image tags {output.tags} do not include expected tag "
@@ -390,7 +393,8 @@ class MultiSWEBenchEvaluation(Evaluation):
             # security_analyzer=LLMSecurityAnalyzer(),
         )
 
-        assert isinstance(workspace, RemoteWorkspace)
+        if not isinstance(workspace, RemoteWorkspace):
+            raise TypeError(f"Expected RemoteWorkspace, got {type(workspace).__name__}")
 
         repo_path = f"/workspace/{instance.data['repo'].split('/')[-1]}/"
         instance.data["repo_path"] = repo_path
@@ -425,13 +429,13 @@ class MultiSWEBenchEvaluation(Evaluation):
         cp_testebed_repo = workspace.execute_command(
             (f"mkdir -p {repo_path} ; cp -r {source_repo_path}/. {repo_path}")
         )
-        assert cp_testebed_repo.exit_code == 0, (
-            f"cp_testebed_repo failed: {cp_testebed_repo.stderr}"
-        )
+        if cp_testebed_repo.exit_code != 0:
+            raise RuntimeError(f"cp_testebed_repo failed: {cp_testebed_repo.stderr}")
 
         # git reset
         git_reset = workspace.execute_command(f"cd {repo_path} ; git reset --hard")
-        assert git_reset.exit_code == 0, f"git reset failed: {git_reset.stderr}"
+        if git_reset.exit_code != 0:
+            raise RuntimeError(f"git reset failed: {git_reset.stderr}")
 
         metadata = cast(MultiSWEBenchEvalMetadata, self.metadata)
         instruction = get_instruction(
@@ -469,9 +473,8 @@ class MultiSWEBenchEvaluation(Evaluation):
         git_patch_result = workspace.execute_command(
             (f"cd {repo_path} ; git --no-pager diff --no-color {base_commit} HEAD")
         )
-        assert git_patch_result.exit_code == 0, (
-            f"git diff failed: {git_patch_result.stderr}"
-        )
+        if git_patch_result.exit_code != 0:
+            raise RuntimeError(f"git diff failed: {git_patch_result.stderr}")
         git_patch = git_patch_result.stdout
 
         # Log instance summary
@@ -509,9 +512,8 @@ def main() -> None:
     prompt_dir = (Path(__file__).parent / "prompts").resolve()
     choices = [str(p.relative_to(Path.cwd())) for p in prompt_dir.glob("*.j2")]
     default_prompt_path = prompt_dir / "default.j2"
-    assert default_prompt_path.exists(), (
-        f"Default prompt {default_prompt_path} not found"
-    )
+    if not default_prompt_path.exists():
+        raise FileNotFoundError(f"Default prompt {default_prompt_path} not found")
 
     parser = get_parser()
     parser.add_argument(

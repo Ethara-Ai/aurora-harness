@@ -160,7 +160,7 @@ def test_get_instruction_raises_when_metadata_details_none(
         prompt_path=str(prompt_template),
         lang="java",
     )
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         run_infer.get_instruction(
             {"repo": "o/r", "problem_statement": "x"}, metadata, "/workspace"
         )
@@ -168,15 +168,13 @@ def test_get_instruction_raises_when_metadata_details_none(
 
 def test_get_instruction_raises_when_prompt_path_none(prompt_template: Path):
     metadata = SimpleNamespace(details={}, prompt_path=None, lang="java")
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         run_infer.get_instruction(
             {"repo": "o/r", "problem_statement": "x"}, metadata, "/workspace"
         )
 
 
-def test_get_instruction_uses_hint_text_module_flag(
-    prompt_template: Path, monkeypatch
-):
+def test_get_instruction_uses_hint_text_module_flag(prompt_template: Path, monkeypatch):
     monkeypatch.setattr(run_infer, "USE_HINT_TEXT", True)
     instance = {"repo": "o/r", "problem_statement": "x"}
     metadata = _make_metadata(prompt_template)

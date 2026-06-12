@@ -211,64 +211,54 @@ def patch_vitest_retry(
             )
 
 
-def _heal_fork_imports() -> None:
-    """Make ``import multi_swe_bench.harness.repos`` succeed on a clean install.
+def _install_missing_repo_shim() -> None:
+    """Let ``import multi_swe_bench.harness.repos`` succeed without mutating site-packages.
 
-    The Ethara multi-swe-bench fork's harness/repos/**/__init__.py reference a
-    few modules that are absent or case-mismatched on a case-sensitive FS (e.g.
-    java.seleniumhq, python.qiskit vs Qiskit), so the package-wide ``import *``
-    chain raises. Disable only the offending ``import *`` lines (those specs are
-    unusable anyway) so the rest of the registry loads.
+    The Ethara multi-swe-bench fork's harness/repos/**/__init__.py reference a few
+    submodules that are absent (e.g. java.seleniumhq, java.xuxueli) or case-mismatched
+    on a case-sensitive FS, so the package-wide ``import *`` chain -- which populates
+    ``Instance._registry`` via ``@Instance.register`` side effects -- raises
+    ModuleNotFoundError.
 
-    STOPGAP — the clean fix is to repair those __init__ imports in the fork.
+    Rather than rewriting those __init__ files on disk (a stateful, non-reproducible
+    stopgap), append a meta-path finder that resolves any genuinely-missing
+    ``multi_swe_bench.harness.repos.*`` submodule to an empty in-memory module. The
+    finder is appended, so real submodules still load normally; only names no real
+    finder can locate fall through to the stub (those specs are unusable anyway).
+    Nothing is written to disk, so every run starts from the same package state.
+
+    The clean long-term fix is to repair those imports in the fork and bump the pinned
+    rev; delete this shim once the rev no longer references missing modules.
     """
+    import importlib.abc
     import importlib.util
-    import re
-    import subprocess
 
-    # Refuse to rewrite anything outside the multi_swe_bench package tree; the
-    # heal target must live inside the fork we are patching. Without this guard,
-    # a crafted upstream traceback could steer arbitrary writes (S-001).
-    spec = importlib.util.find_spec("multi_swe_bench")
-    if spec is None or not spec.submodule_search_locations:
-        return
-    heal_roots = tuple(
-        Path(loc).resolve() for loc in spec.submodule_search_locations
-    )
+    prefix = "multi_swe_bench.harness.repos."
 
-    for _ in range(80):
-        probe = subprocess.run(
-            [sys.executable, "-c", "import multi_swe_bench.harness.repos"],
-            capture_output=True,
-            text=True,
-        )
-        if probe.returncode == 0:
-            return
-        if "ModuleNotFoundError" not in probe.stderr:
-            return  # only auto-disable genuinely-missing modules; never mask other errors
-        frames = re.findall(
-            r'File "([^"]+\.py)", line (\d+), in <module>', probe.stderr
-        )
-        if not frames:
-            return  # unparseable — let the real import below surface the error
-        path_str, lineno = frames[-1][0], int(frames[-1][1])
-        try:
-            target = Path(path_str).resolve()
-        except OSError:
-            return
-        if not any(target.is_relative_to(root) for root in heal_roots):
-            return
-        try:
-            lines = target.read_text(encoding="utf-8").split("\n")
-        except OSError:
-            return
-        if not (0 < lineno <= len(lines)):
-            return
-        lines[lineno - 1] = "# [milo-heal] " + lines[lineno - 1]
-        target.write_text("\n".join(lines), encoding="utf-8")
+    class _EmptyModuleLoader(importlib.abc.Loader):
+        def create_module(self, spec):
+            return None  # default module creation
+
+        def exec_module(self, module):
+            return None  # empty: a missing spec registers no Instance subclasses
+
+    class _MissingRepoStubFinder(importlib.abc.MetaPathFinder):
+        def find_spec(self, fullname, path=None, target=None):
+            if not fullname.startswith(prefix):
+                return None
+            # Appended to meta_path: reaching here means no real finder located the
+            # module, so provide an empty stub to let the ``import *`` chain continue.
+            print(
+                f"[milo-shim] stubbing missing multi-swe-bench module: {fullname}",
+                file=sys.stderr,
+            )
+            return importlib.util.spec_from_loader(fullname, _EmptyModuleLoader())
+
+    if not any(type(f).__name__ == "_MissingRepoStubFinder" for f in sys.meta_path):
+        sys.meta_path.append(_MissingRepoStubFinder())
 
 
-_heal_fork_imports()
+_install_missing_repo_shim()
 
 from multi_swe_bench.harness import (  # noqa: E402, F401 - side effects register instances
     repos,
@@ -300,7 +290,13 @@ def run_command(command: str, workdir: Path, log_path: Path) -> int:
         log_file.write(f"$ {command}\n\n")
         log_file.flush()
 
-        process = subprocess.Popen(
+        # S-001: shell=True is intentional (and locked by a unit test). `command`
+        # is the converter-generated test_cmd (always `bash /home/test-run.sh`),
+        # part of the trusted task bundle — never agent-controlled — and the
+        # verifier runs under task.toml network_mode="none" (no egress). The risk
+        # is bounded and accepted. If test_cmd ever becomes untrusted, switch to an
+        # argv list (shlex.split) + shell=False.
+        process = subprocess.Popen(  # nosec B602 - trusted test_cmd, sandboxed verifier
             command,
             cwd=workdir,
             shell=True,
@@ -310,7 +306,8 @@ def run_command(command: str, workdir: Path, log_path: Path) -> int:
             text=True,
         )
 
-        assert process.stdout is not None
+        if process.stdout is None:
+            raise RuntimeError("subprocess produced no stdout pipe")
         for line in process.stdout:
             log_file.write(line)
             log_file.flush()

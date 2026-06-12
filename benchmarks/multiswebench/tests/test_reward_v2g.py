@@ -4,12 +4,8 @@ import importlib.util
 import unittest
 from pathlib import Path
 
-_CONVERTER = (
-    Path(__file__).resolve().parents[1]
-    / "scripts"
-    / "harbor"
-    / "converter.py"
-)
+
+_CONVERTER = Path(__file__).resolve().parents[1] / "scripts" / "harbor" / "converter.py"
 _spec = importlib.util.spec_from_file_location("_converter_under_test", _CONVERTER)
 assert _spec is not None and _spec.loader is not None
 _mod = importlib.util.module_from_spec(_spec)
@@ -62,7 +58,6 @@ def _report(
 
 
 class PollutionGateTests(unittest.TestCase):
-
     def test_polluted_dataset_all_targets_preexisting(self) -> None:
         T = [f"t{i}" for i in range(539)]
         ds = _ds(n2p=T)
@@ -75,18 +70,14 @@ class PollutionGateTests(unittest.TestCase):
     def test_pollution_gate_fires_when_t_eff_lt_3(self) -> None:
         T = [f"t{i}" for i in range(10)]
         ds = _ds(n2p=T)
-        r = compute_reward_v2g(
-            ds, _report(fix_passed=T[:8], test_passed=T[:8])
-        )
+        r = compute_reward_v2g(ds, _report(fix_passed=T[:8], test_passed=T[:8]))
         self.assertEqual(r["status"], "polluted_dataset")
         self.assertEqual(r["diagnostics"]["t_eff_total"], 2)
 
     def test_pollution_gate_does_not_fire_when_t_eff_ge_3(self) -> None:
         T = [f"t{i}" for i in range(15)]
         ds = _ds(n2p=T)
-        r = compute_reward_v2g(
-            ds, _report(fix_passed=T[:12], test_passed=T[:12])
-        )
+        r = compute_reward_v2g(ds, _report(fix_passed=T[:12], test_passed=T[:12]))
         self.assertEqual(r["status"], "scored")
         self.assertEqual(r["diagnostics"]["t_eff_total"], 3)
         self.assertAlmostEqual(r["diagnostics"]["pollution_rate"], 12 / 15)
@@ -123,7 +114,6 @@ class PollutionGateTests(unittest.TestCase):
 
 
 class SetDiffNumeratorTests(unittest.TestCase):
-
     def test_scenario_32_baseline_regression_penalized_once(self) -> None:
         T = ["a", "b", "c", "d", "e", "f"]
         T_p_baseline = ["a", "b", "c", "x", "y"]
@@ -167,7 +157,6 @@ class SetDiffNumeratorTests(unittest.TestCase):
 
 
 class R0FloorTests(unittest.TestCase):
-
     def test_small_t_broken_1_costs_5_percent(self) -> None:
         T = ["x", "y"]
         baseline = [f"base{i}" for i in range(50)]
@@ -204,7 +193,6 @@ class R0FloorTests(unittest.TestCase):
 
 
 class DiagnosticTests(unittest.TestCase):
-
     def test_f2p_baseline_pass_count_nonzero_on_env_drift(self) -> None:
         ds = _ds(f2p=["f1", "f2", "f3"])
         r = compute_reward_v2g(
@@ -238,9 +226,7 @@ class DiagnosticTests(unittest.TestCase):
             "failed_tests": [],
             "skipped_tests": [],
         }
-        r = compute_reward_v2g(
-            ds, _report(fix_passed=["t1"], test_passed=["base1"])
-        )
+        r = compute_reward_v2g(ds, _report(fix_passed=["t1"], test_passed=["base1"]))
         self.assertEqual(r["diagnostics"]["baseline_drift"], 0)
 
     def test_t_p_run_total_reflects_run_report_baseline(self) -> None:
@@ -306,7 +292,9 @@ class ZeroObservationGateTests(unittest.TestCase):
         ds = _ds(f2p=["t1", "t2", "t3"])
         r = compute_reward_v2g(
             ds,
-            _report(fix_passed=[], fix_failed=[], fix_skipped=[], test_passed=["p1", "p2"]),
+            _report(
+                fix_passed=[], fix_failed=[], fix_skipped=[], test_passed=["p1", "p2"]
+            ),
         )
         self.assertEqual(r["status"], "invalid")
 
@@ -317,6 +305,51 @@ class ZeroObservationGateTests(unittest.TestCase):
             _report(fix_passed=["t1", "t2"], test_passed=["p1"]),
         )
         self.assertEqual(r["status"], "scored")
+
+
+class HeadlineRewardChannelTests(unittest.TestCase):
+    """V-002: pin the headline ``reward`` channel.
+
+    ``build_trajectory`` writes ``rewards["reward"]`` as the trajectory reward, so
+    that key must mirror ``reward_continuous_v2`` (the fractional v2g score) on
+    scored outcomes and be 0.0 otherwise — not shadow ``reward_binary``.
+    """
+
+    def test_scored_reward_mirrors_continuous_v2(self) -> None:
+        ds = _ds(f2p=["t1", "t2"])
+        r = compute_reward_v2g(ds, _report(fix_passed=["t1", "t2"], test_passed=["p1"]))
+        self.assertEqual(r["status"], "scored")
+        self.assertEqual(r["reward_version"], "continuous_v2")
+        self.assertEqual(r["rewards"]["reward"], r["rewards"]["reward_continuous_v2"])
+        self.assertGreater(r["rewards"]["reward"], 0.0)
+
+    def test_non_scored_reward_is_zero(self) -> None:
+        T = [f"t{i}" for i in range(539)]
+        ds = _ds(n2p=T)
+        r = compute_reward_v2g(ds, _report(fix_passed=T, test_passed=T))
+        self.assertNotEqual(r["status"], "scored")
+        self.assertEqual(r["rewards"]["reward"], 0.0)
+
+    def test_headline_reward_follows_continuous_not_binary(self) -> None:
+        # Partial-credit case: 2/3 recall * 0.95 regression factor -> fractional
+        # reward in (0, 1), while the strict binary channel is 0. The headline
+        # ``reward`` must follow the continuous score, proving it is not binary.
+        T = ["a", "b", "c", "d", "e", "f"]
+        T_p_baseline = ["a", "b", "c", "x", "y"]
+        ds = _ds(n2p=T)
+        r = compute_reward_v2g(
+            ds,
+            _report(
+                fix_passed=["b", "c", "d", "e"],
+                fix_failed=["a"],
+                test_passed=T_p_baseline,
+            ),
+        )
+        self.assertEqual(r["status"], "scored")
+        self.assertEqual(r["rewards"]["reward"], r["rewards"]["reward_continuous_v2"])
+        self.assertEqual(r["rewards"]["reward_binary"], 0.0)
+        self.assertGreater(r["rewards"]["reward"], 0.0)
+        self.assertLess(r["rewards"]["reward"], 1.0)
 
 
 if __name__ == "__main__":
