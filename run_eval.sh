@@ -718,8 +718,19 @@ stage_dataset() {
     fi
 
     if [[ -d "$harbor_out/trajectory" ]]; then
-        rm -rf "$d_traj"; mkdir -p "$d_traj"
-        cp -R "$harbor_out/trajectory/." "$d_traj/" 2>/dev/null || log "data: WARN could not copy harbor trajectory for $iid (uuid=$uuid)"
+        mkdir -p "$d_traj"
+        local _mdir _mname _copied=0
+        for _mdir in "$harbor_out/trajectory"/*/; do
+            [[ -d "$_mdir" ]] || continue
+            _mname="$(basename "$_mdir")"
+            rm -rf "$d_traj/$_mname"; mkdir -p "$d_traj/$_mname"
+            if cp -R "$_mdir." "$d_traj/$_mname/" 2>/dev/null; then
+                _copied=1
+            else
+                log "data: WARN could not copy harbor trajectory model $_mname for $iid (uuid=$uuid)"
+            fi
+        done
+        [[ $_copied -eq 0 ]] && log "data: WARN no model trajectory subdirs under $harbor_out/trajectory for $iid"
         find "$d_traj" -name .git -prune -exec rm -rf {} + 2>/dev/null || true
     else
         log "data: WARN harbor trajectory dir missing at $harbor_out/trajectory for $iid"
@@ -979,7 +990,7 @@ print(d.get('org',''), d.get('repo',''), d.get('number',''), d['uuid'])
         else
             local ACTUAL_OUTPUT
             ACTUAL_OUTPUT=$(find "$RUN_DIR" -name "output.jsonl" -not -path "*/eval_files/*" 2>/dev/null | head -1 || true)
-            [[ -n "$ACTUAL_OUTPUT" && "$ACTUAL_OUTPUT" != "$OUTPUT_JSONL" && ! -f "$OUTPUT_JSONL" ]] && cp "$ACTUAL_OUTPUT" "$OUTPUT_JSONL" 2>/dev/null || true
+            [[ -n "$ACTUAL_OUTPUT" && "$ACTUAL_OUTPUT" != "$OUTPUT_JSONL" && ! -s "$OUTPUT_JSONL" ]] && cp "$ACTUAL_OUTPUT" "$OUTPUT_JSONL" 2>/dev/null || true
         fi
         PH_EXEC_END="$(iso_now_microseconds)"
 
