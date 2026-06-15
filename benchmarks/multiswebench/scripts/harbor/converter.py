@@ -655,16 +655,14 @@ def build_atif_trajectory(
             step_cost = cost_by_response.get(rid)
             if step_cost is not None:
                 step_metrics["cost_usd"] = step_cost
-            step_extra: dict[str, Any] = {}
-            if base and base.get("reasoning_tokens"):
-                step_extra["reasoning_tokens"] = base["reasoning_tokens"]
-            if base and base.get("cache_write_tokens"):
-                step_extra["cache_write_tokens"] = base["cache_write_tokens"]
+            step_extra: dict[str, Any] = {
+                "reasoning_tokens": int(base.get("reasoning_tokens") or 0) if base else 0,
+                "cache_write_tokens": int(base.get("cache_write_tokens") or 0) if base else 0,
+            }
             latency = latency_by_response.get(rid)
             if latency is not None:
                 step_extra["latency_s"] = latency
-            if step_extra:
-                step_metrics["extra"] = step_extra
+            step_metrics["extra"] = step_extra
 
             step_obj: dict[str, Any] = {
                 "step_id": step_id,
@@ -696,17 +694,13 @@ def build_atif_trajectory(
     }
     if accumulated_cost is not None:
         final_metrics["total_cost_usd"] = float(accumulated_cost)
-    fm_extra: dict[str, Any] = {}
-    total_reasoning = int(accumulated_token_usage.get("reasoning_tokens") or 0)
-    total_cache_write = int(accumulated_token_usage.get("cache_write_tokens") or 0)
-    if total_reasoning:
-        fm_extra["total_reasoning_tokens"] = total_reasoning
-    if total_cache_write:
-        fm_extra["total_cache_write_tokens"] = total_cache_write
+    fm_extra: dict[str, Any] = {
+        "total_reasoning_tokens": int(accumulated_token_usage.get("reasoning_tokens") or 0),
+        "total_cache_write_tokens": int(accumulated_token_usage.get("cache_write_tokens") or 0),
+    }
     if reasoning_effort:
         fm_extra["reasoning_effort"] = reasoning_effort
-    if fm_extra:
-        final_metrics["extra"] = fm_extra
+    final_metrics["extra"] = fm_extra
 
     trajectory: dict[str, Any] = {
         "schema_version": "ATIF-v1.7",
