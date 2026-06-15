@@ -447,6 +447,52 @@ def _extract_text_blocks(blocks: Any) -> str:
     return "\n".join(parts)
 
 
+def _validate_atif_trajectory(trajectory: dict[str, Any]) -> None:
+    fm = trajectory.get("final_metrics") or {}
+    fm_extra = fm.get("extra") or {}
+    agent_steps = [
+        s for s in (trajectory.get("steps") or []) if s.get("source") == "agent"
+    ]
+
+    def _sum_extra(key: str) -> int:
+        return sum(
+            int(((s.get("metrics") or {}).get("extra") or {}).get(key) or 0)
+            for s in agent_steps
+        )
+
+    step_reasoning = _sum_extra("reasoning_tokens")
+    total_reasoning = int(fm_extra.get("total_reasoning_tokens") or 0)
+    if total_reasoning and step_reasoning != total_reasoning:
+        raise ValueError(
+            f"trajectory self-validation: Σ step reasoning_tokens ({step_reasoning})"
+            f" != final.extra.total_reasoning_tokens ({total_reasoning})"
+        )
+
+    step_cw = _sum_extra("cache_write_tokens")
+    total_cw = int(fm_extra.get("total_cache_write_tokens") or 0)
+    if total_cw and step_cw != total_cw:
+        raise ValueError(
+            f"trajectory self-validation: Σ step cache_write_tokens ({step_cw})"
+            f" != final.extra.total_cache_write_tokens ({total_cw})"
+        )
+
+    total_cost = fm.get("total_cost_usd")
+    if total_cost is not None:
+        step_cost = sum(
+            float((s.get("metrics") or {}).get("cost_usd") or 0.0)
+            for s in agent_steps
+        )
+        # Per-step cost may be intentionally omitted (spec §4.1 length-mismatch
+        # fallback). Only enforce reconciliation when at least one step reports cost.
+        if step_cost > 0:
+            tolerance = max(1e-6, float(total_cost) * 1e-4)
+            if abs(step_cost - float(total_cost)) > tolerance:
+                raise ValueError(
+                    f"trajectory self-validation: Σ step cost_usd ({step_cost:.10f})"
+                    f" != final.total_cost_usd ({float(total_cost):.10f})"
+                )
+
+
 def build_atif_trajectory(
     history: list[dict[str, Any]],
     agent_tag: str,
@@ -455,6 +501,10 @@ def build_atif_trajectory(
     session_id: str,
     accumulated_token_usage: dict[str, Any],
     token_usages: list[dict[str, Any]],
+    costs: list[dict[str, Any]] | None = None,
+    response_latencies: list[dict[str, Any]] | None = None,
+    accumulated_cost: float | None = None,
+    reasoning_effort: str | None = None,
 ) -> dict[str, Any]:
     obs_by_tcid: dict[str, dict[str, Any]] = {}
     for entry in history:
@@ -477,7 +527,34 @@ def build_atif_trajectory(
             "prompt_tokens": int(tu.get("prompt_tokens") or 0),
             "completion_tokens": int(tu.get("completion_tokens") or 0),
             "cached_tokens": int(tu.get("cache_read_tokens") or 0),
+            "reasoning_tokens": int(tu.get("reasoning_tokens") or 0),
+            "cache_write_tokens": int(tu.get("cache_write_tokens") or 0),
         }
+
+    latency_by_response: dict[str, float] = {}
+    for lat in response_latencies or []:
+        if not isinstance(lat, dict):
+            continue
+        rid_l = lat.get("response_id")
+        latv = lat.get("latency")
+        if isinstance(rid_l, str) and rid_l and isinstance(latv, (int, float)):
+            latency_by_response[rid_l] = float(latv)
+
+    # costs[] has no response_id; spec requires per-call same length & order as
+    # token_usages[]. Index-zip only on length match; on mismatch we omit per-step
+    # cost_usd entirely rather than risk misattribution (total_cost_usd unaffected).
+    cost_by_response: dict[str, float] = {}
+    costs_list = costs or []
+    if costs_list and len(costs_list) == len(token_usages):
+        for i in range(len(costs_list)):
+            tu_i = token_usages[i]
+            c_i = costs_list[i]
+            if not isinstance(tu_i, dict) or not isinstance(c_i, dict):
+                continue
+            rid_c = tu_i.get("response_id")
+            cv = c_i.get("cost")
+            if isinstance(rid_c, str) and rid_c and isinstance(cv, (int, float)):
+                cost_by_response[rid_c] = float(cv)
 
     steps: list[dict[str, Any]] = []
     step_id = 0
@@ -561,26 +638,45 @@ def build_atif_trajectory(
 
             rid_raw = entry.get("llm_response_id")
             rid = rid_raw if isinstance(rid_raw, str) else ""
-            step_metrics = metrics_by_response.get(
-                rid,
-                {"prompt_tokens": 0, "completion_tokens": 0, "cached_tokens": 0},
-            )
+            base = metrics_by_response.get(rid)
+            step_metrics: dict[str, Any] = {
+                "prompt_tokens": base.get("prompt_tokens") if base else 0,
+                "completion_tokens": base.get("completion_tokens") if base else 0,
+                "cached_tokens": base.get("cached_tokens") if base else 0,
+            }
+            step_cost = cost_by_response.get(rid)
+            if step_cost is not None:
+                step_metrics["cost_usd"] = step_cost
+            step_extra: dict[str, Any] = {}
+            if base and base.get("reasoning_tokens"):
+                step_extra["reasoning_tokens"] = base["reasoning_tokens"]
+            if base and base.get("cache_write_tokens"):
+                step_extra["cache_write_tokens"] = base["cache_write_tokens"]
+            latency = latency_by_response.get(rid)
+            if latency is not None:
+                step_extra["latency_s"] = latency
+            if step_extra:
+                step_metrics["extra"] = step_extra
 
-            steps.append(
-                {
-                    "step_id": step_id,
-                    "timestamp": ts,
-                    "source": "agent",
-                    "model_name": model_name_bare,
-                    "message": message,
-                    "tool_calls": tool_calls,
-                    "observation": {"results": results},
-                    "metrics": step_metrics,
-                }
-            )
+            step_obj: dict[str, Any] = {
+                "step_id": step_id,
+                "timestamp": ts,
+                "source": "agent",
+                "model_name": model_name_bare,
+                "message": message,
+                "tool_calls": tool_calls,
+                "observation": {"results": results},
+                "metrics": step_metrics,
+            }
+            reasoning_text = _extract_text_blocks(entry.get("reasoning_content"))
+            if reasoning_text:
+                step_obj["reasoning_content"] = reasoning_text
+            if reasoning_effort:
+                step_obj["reasoning_effort"] = reasoning_effort
+            steps.append(step_obj)
             continue
 
-    final_metrics = {
+    final_metrics: dict[str, Any] = {
         "total_prompt_tokens": int(accumulated_token_usage.get("prompt_tokens") or 0),
         "total_completion_tokens": int(
             accumulated_token_usage.get("completion_tokens") or 0
@@ -589,8 +685,21 @@ def build_atif_trajectory(
             accumulated_token_usage.get("cache_read_tokens") or 0
         ),
     }
+    if accumulated_cost is not None:
+        final_metrics["total_cost_usd"] = float(accumulated_cost)
+    fm_extra: dict[str, Any] = {}
+    total_reasoning = int(accumulated_token_usage.get("reasoning_tokens") or 0)
+    total_cache_write = int(accumulated_token_usage.get("cache_write_tokens") or 0)
+    if total_reasoning:
+        fm_extra["total_reasoning_tokens"] = total_reasoning
+    if total_cache_write:
+        fm_extra["total_cache_write_tokens"] = total_cache_write
+    if reasoning_effort:
+        fm_extra["reasoning_effort"] = reasoning_effort
+    if fm_extra:
+        final_metrics["extra"] = fm_extra
 
-    return {
+    trajectory: dict[str, Any] = {
         "schema_version": "ATIF-v1.7",
         "session_id": session_id,
         "agent": {
@@ -602,6 +711,8 @@ def build_atif_trajectory(
         "steps": steps,
         "final_metrics": final_metrics,
     }
+    _validate_atif_trajectory(trajectory)
+    return trajectory
 
 
 def _parse_tool_arguments(entry: dict[str, Any]) -> dict[str, Any]:
@@ -1277,6 +1388,10 @@ def build_trajectory(
         atif_session_id,
         token_usage,
         metrics.get("token_usages") or [],
+        costs=metrics.get("costs") or [],
+        response_latencies=metrics.get("response_latencies") or [],
+        accumulated_cost=accumulated_cost,
+        reasoning_effort=llm_info.get("reasoning_effort"),
     )
     (traj_dir / "agent" / "trajectory.json").write_text(
         json.dumps(atif_trajectory, indent=2) + "\n", encoding="utf-8"
