@@ -1,0 +1,246 @@
+[
+  {
+    "id": "T-001",
+    "axis": "Testing",
+    "title": "Benchmark-local test suite (incl. reward/convert scoring logic) is not run by CI",
+    "severity": "HIGH",
+    "disposition": "SHIP",
+    "confidence": "High",
+    "confidence_reason": "CI tests.yml runs only `tests/`; grep shows benchmarks/multiswebench/tests is never invoked and top-level tests do not import the scoring code",
+    "evidence": [
+      "SRC:.github/workflows/tests.yml:52-57",
+      "CMD-013",
+      "CMD-014",
+      "CMD-024",
+      "CMD-025"
+    ],
+    "affected_component": "CI test gate / multiswebench scoring tests",
+    "instance_count": 1,
+    "bug_ticket": "BUG-T-001",
+    "resolution": "Resolved 2026-06-15. .github/workflows/tests.yml pytest target changed from `tests/` to `benchmarks/multiswebench/tests tests/`; benchmark scoring suite now merge-gated. Verified: 259 benchmark tests pass (CMD-025)."
+  },
+  {
+    "id": "D-001",
+    "axis": "Dependencies",
+    "title": "Production eval-harness fork (multi-swe-bench) pinned to a moving `main` branch ref",
+    "severity": "HIGH",
+    "disposition": "SHIP",
+    "confidence": "High",
+    "confidence_reason": "pyproject [tool.uv.sources] pins multi-swe-bench to rev='main'; the production scorer is this fork's harness (eval_infer invokes multi_swe_bench.harness.run_evaluation)",
+    "evidence": [
+      "SRC:pyproject.toml:122",
+      "SRC:benchmarks/multiswebench/eval_infer.py:79-89",
+      "CMD-024"
+    ],
+    "affected_component": "scoring harness dependency",
+    "instance_count": 1,
+    "bug_ticket": "BUG-D-001",
+    "resolution": "Accepted-risk (maintainer decision 2026-06-15). rev=\"main\" is intentional so the grader fork tracks registry updates on re-lock. Reproducibility within a locked state is provided by uv.lock, which pins the resolved commit 73926adbeacd1b7e53acee0a074af527fc1fd146 for every `uv sync --frozen` install (CI uses --frozen); the float only occurs on a deliberate `uv lock`. Disposition BLOCK->SHIP (accepted risk); revisit/pin before a published cross-time campaign."
+  },
+  {
+    "id": "R-001",
+    "axis": "Reliability",
+    "title": "eval_infer default dataset string is treated as a (nonexistent) local path",
+    "severity": "MEDIUM",
+    "disposition": "SHIP",
+    "confidence": "High",
+    "confidence_reason": "Default dataset_name 'bytedance-research/Multi-SWE-Bench' never matches the 'ByteDance-Seed/Multi-SWE-bench' download trigger, so it falls to Path(...).resolve() and is passed to the harness as a path",
+    "evidence": [
+      "SRC:benchmarks/multiswebench/eval_infer.py:51-70",
+      "CMD-019"
+    ],
+    "affected_component": "eval_infer dataset resolution",
+    "instance_count": 1,
+    "bug_ticket": "BUG-R-001",
+    "resolution": "Accepted-risk / not-applicable in deployment (maintainer 2026-06-15): the harness runs on EC2 importing the dataset from a LOCAL path; the HuggingFace default-name download branch (where the `bytedance-research` vs `ByteDance-Seed` case-mismatch occurs) is never exercised, so it cannot resolve to a nonexistent path in practice."
+  },
+  {
+    "id": "R-002",
+    "axis": "Reliability",
+    "title": "Fuzzy-apply config injection uses greedy `sed s@git apply.*@...@g` that may double-apply patches",
+    "severity": "MEDIUM",
+    "disposition": "SHIP",
+    "confidence": "Medium",
+    "confidence_reason": "Greedy global sed rewrites EVERY `git apply` line in upstream fix-run.sh to the full test+fix apply; correctness depends on upstream fix-run.sh having exactly one such line (third-party, unverified here)",
+    "evidence": [
+      "SRC:benchmarks/multiswebench/scripts/eval/update_multi_swe_bench_config.py:46-54",
+      "CMD-027",
+      "CMD-028"
+    ],
+    "affected_component": "production patch-apply / scoring",
+    "instance_count": 1,
+    "bug_ticket": "BUG-R-002",
+    "resolution": "Resolved 2026-06-15. _APPLY_PATCH_HELPER made idempotent: a leading `git apply --reverse --check` guard skips an already-applied patch, so the greedy global `sed ...@g` (which can invoke the helper twice per patch when upstream fix-run.sh has >1 `git apply` line, e.g. pandas) can no longer double-apply/corrupt scoring. Behaviorally verified: 2nd apply = 'already applied (skip)', file correct, no .rej (CMD-027); 261 benchmark tests pass incl. 2 new R-002 regression tests (CMD-028)."
+  },
+  {
+    "id": "D-002",
+    "axis": "Dependencies",
+    "title": "71 known CVEs across 22 installed dependencies in the project venv",
+    "severity": "MEDIUM",
+    "disposition": "SHIP",
+    "confidence": "High",
+    "confidence_reason": "pip-audit against the venv package set reported 71 advisories in 22 packages (time-sensitive, as of 2026-06-15)",
+    "evidence": [
+      "CMD-009"
+    ],
+    "affected_component": "transitive dependency tree",
+    "instance_count": 22,
+    "bug_ticket": "BUG-D-002",
+    "resolution": "Accepted-risk (maintainer 2026-06-15): the 71 advisories are predominantly transitive in pinned fork deps (litellm/aiohttp/cryptography/lxml/urllib3/requests/...); the pip-audit result is TIME-SENSITIVE \u2014 valid only as of this SHA + audit date (CMD-009). Mitigation: re-run pip-audit per benchmark campaign and patch any reachable high-severity advisories then. Disposition HOLD->SHIP. The current dependency pins all satisfy the project's functional requirements and are retained as-is; CVEs in those pinned versions are accepted, not a trigger to bump."
+  },
+  {
+    "id": "T-002",
+    "axis": "Testing",
+    "title": "Property-based reward tests cannot run: `hypothesis` absent from lockfile and venv",
+    "severity": "MEDIUM",
+    "disposition": "SHIP",
+    "confidence": "High",
+    "confidence_reason": "test_reward_v2g_properties.py imports hypothesis; module missing from venv (collection ImportError) and `hypothesis` is not present in uv.lock",
+    "evidence": [
+      "CMD-015",
+      "CMD-016",
+      "SRC:benchmarks/multiswebench/tests/test_reward_v2g_properties.py:19",
+      "CMD-023",
+      "CMD-024",
+      "CMD-025"
+    ],
+    "affected_component": "reward formula property tests",
+    "instance_count": 1,
+    "bug_ticket": "BUG-T-002",
+    "resolution": "Resolved 2026-06-15. `hypothesis>=6.0.0` added to pyproject.toml dev group and uv.lock regenerated (CMD-023); `uv sync --frozen` consistent (CMD-024); the 15 property tests now collect and pass (CMD-025)."
+  },
+  {
+    "id": "S-001",
+    "axis": "Security",
+    "title": "Jinja2 Environment created without autoescape (prompt templating)",
+    "severity": "LOW",
+    "disposition": "SHIP",
+    "confidence": "High",
+    "confidence_reason": "bandit B701 + semgrep both flag Environment(loader=...) with default autoescape=False; context is LLM-prompt rendering (not HTML), so injection risk is contained to prompt content",
+    "evidence": [
+      "SRC:benchmarks/multiswebench/run_infer.py:85",
+      "CMD-006",
+      "CMD-017"
+    ],
+    "instrumented": "bandit 1.9.4",
+    "cvss_vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:L/A:N",
+    "cvss_base": 3.1,
+    "cwe": "CWE-79",
+    "affected_component": "instruction template rendering",
+    "instance_count": 1
+  },
+  {
+    "id": "R-003",
+    "axis": "Reliability",
+    "title": "Per-instance timeout cannot interrupt a running worker (ProcessPoolExecutor limitation)",
+    "severity": "MEDIUM",
+    "disposition": "SHIP",
+    "confidence": "High",
+    "confidence_reason": "Code and its own docstring acknowledge fut.cancel() only stops unstarted futures; a hung instance keeps a worker busy until pool shutdown, reducing effective parallelism",
+    "evidence": [
+      "SRC:benchmarks/utils/evaluation.py:66-75",
+      "SRC:benchmarks/utils/evaluation.py:470-472"
+    ],
+    "affected_component": "evaluation orchestrator timeout handling",
+    "instance_count": 1,
+    "bug_ticket": "BUG-R-003",
+    "resolution": "Accepted-risk (maintainer 2026-06-15): per-instance tasks can legitimately run 14-15h for large PR-bundle instances; the non-interruptible per-instance timeout is handled by operator MANUAL INTERVENTION rather than in-process cancellation. Conscious operational choice."
+  },
+  {
+    "id": "Q-001",
+    "axis": "Code Quality",
+    "title": "High cyclomatic complexity in scoring/logging hotspots (compute_reward_v2g E32, summarize_instance E35)",
+    "severity": "LOW",
+    "disposition": "SHIP",
+    "confidence": "High",
+    "confidence_reason": "radon cc reports two grade-E and three grade-D functions concentrated in the scoring and console-logging modules",
+    "evidence": [
+      "CMD-008"
+    ],
+    "instrumented": "radon 6.0.1",
+    "affected_component": "reward_v2g / console_logging / data_change / evaluation",
+    "instance_count": 5
+  },
+  {
+    "id": "S-002",
+    "axis": "Security",
+    "title": "No secret scanning of git history (no tooling available); history not verified clean",
+    "severity": "LOW",
+    "disposition": "SHIP",
+    "confidence": "Low",
+    "confidence_reason": "gitleaks/trufflehog unavailable; working-tree grep found only env-var reads, but 363 commits of history were not scanned",
+    "evidence": [
+      "CMD-011",
+      "CMD-018",
+      "CMD-020"
+    ],
+    "cvss_vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:N/A:N",
+    "cvss_base": 3.1,
+    "cwe": "CWE-540",
+    "affected_component": "repo / git history",
+    "instance_count": 1,
+    "bug_ticket": "BUG-S-002",
+    "resolution": "Mitigated (maintainer 2026-06-15): prior audit run multiswebench-audit-20260612 scanned the working tree AND git history (200 commits) with 0 secret hits (its CMD-011 / H-001). This run only lacked gitleaks (tool absent). Residual: ~163 commits added since that scan are not covered by a dedicated entropy scanner; LOW severity."
+  },
+  {
+    "id": "H-001",
+    "axis": "Repo Hygiene",
+    "title": "Hardcoded private ECR account id as default image prefix",
+    "severity": "LOW",
+    "disposition": "SHIP",
+    "confidence": "High",
+    "confidence_reason": "Account id 426628337772 baked as the default EVAL_DOCKER_IMAGE_PREFIX in two modules; overridable via env so not a secret, but leaks infra identity and couples code to one registry",
+    "evidence": [
+      "SRC:benchmarks/multiswebench/run_infer.py:59-62",
+      "CMD-012"
+    ],
+    "affected_component": "docker image prefix defaults",
+    "instance_count": 2
+  },
+  {
+    "id": "R-004",
+    "axis": "Reliability",
+    "title": "Broad `except Exception` swallows errors across the harness (45 sites in-scope)",
+    "severity": "LOW",
+    "disposition": "SHIP",
+    "confidence": "High",
+    "confidence_reason": "grep counts 45 broad-except handlers in-scope; most are intentional best-effort (logging/laminar/cleanup) but several downgrade real failures to debug logs",
+    "evidence": [
+      "CMD-021",
+      "SRC:benchmarks/multiswebench/eval_infer.py:104-108"
+    ],
+    "affected_component": "harness-wide error handling",
+    "instance_count": 45
+  },
+  {
+    "id": "O-001",
+    "axis": "Observability",
+    "title": "Conversation event persistence env-gate is commented out (always-on by default)",
+    "severity": "INFO",
+    "disposition": "SHIP",
+    "confidence": "High",
+    "confidence_reason": "The ENABLE_CONVERSATION_EVENT_LOGGING disable path is commented out with a TODO; logging is unconditionally on. Observed behavior, not a defect",
+    "evidence": [
+      "SRC:benchmarks/utils/conversation.py:95-97"
+    ],
+    "affected_component": "event persistence callback",
+    "instance_count": 1
+  },
+  {
+    "id": "Q-002",
+    "axis": "Code Quality",
+    "title": "Lint/type/format gates are clean across the in-scope set",
+    "severity": "INFO",
+    "disposition": "SHIP",
+    "confidence": "High",
+    "confidence_reason": "ruff (E,F,I) and pyright (strict) both report zero findings on the 23 in-scope files; only one trivial vulture item",
+    "evidence": [
+      "CMD-005",
+      "CMD-010",
+      "CMD-007"
+    ],
+    "instrumented": "ruff 0.15.6; pyright 1.1.408",
+    "affected_component": "in-scope source",
+    "instance_count": 1
+  }
+]
