@@ -447,7 +447,10 @@ def _extract_text_blocks(blocks: Any) -> str:
     return "\n".join(parts)
 
 
-def _validate_atif_trajectory(trajectory: dict[str, Any]) -> None:
+def _validate_atif_trajectory(
+    trajectory: dict[str, Any],
+    expected_per_step_sums: dict[str, float] | None = None,
+) -> None:
     fm = trajectory.get("final_metrics") or {}
     fm_extra = fm.get("extra") or {}
     agent_steps = [
@@ -460,20 +463,26 @@ def _validate_atif_trajectory(trajectory: dict[str, Any]) -> None:
             for s in agent_steps
         )
 
+    expected = expected_per_step_sums or {}
+
     step_reasoning = _sum_extra("reasoning_tokens")
-    total_reasoning = int(fm_extra.get("total_reasoning_tokens") or 0)
-    if total_reasoning and step_reasoning != total_reasoning:
+    expected_reasoning = int(
+        expected.get("reasoning_tokens", fm_extra.get("total_reasoning_tokens") or 0)
+    )
+    if expected_reasoning and step_reasoning != expected_reasoning:
         raise ValueError(
             f"trajectory self-validation: Σ step reasoning_tokens ({step_reasoning})"
-            f" != final.extra.total_reasoning_tokens ({total_reasoning})"
+            f" != attributed reasoning_tokens ({expected_reasoning})"
         )
 
     step_cw = _sum_extra("cache_write_tokens")
-    total_cw = int(fm_extra.get("total_cache_write_tokens") or 0)
-    if total_cw and step_cw != total_cw:
+    expected_cw = int(
+        expected.get("cache_write_tokens", fm_extra.get("total_cache_write_tokens") or 0)
+    )
+    if expected_cw and step_cw != expected_cw:
         raise ValueError(
             f"trajectory self-validation: Σ step cache_write_tokens ({step_cw})"
-            f" != final.extra.total_cache_write_tokens ({total_cw})"
+            f" != attributed cache_write_tokens ({expected_cw})"
         )
 
     total_cost = fm.get("total_cost_usd")
@@ -482,14 +491,13 @@ def _validate_atif_trajectory(trajectory: dict[str, Any]) -> None:
             float((s.get("metrics") or {}).get("cost_usd") or 0.0)
             for s in agent_steps
         )
-        # Per-step cost may be intentionally omitted (spec §4.1 length-mismatch
-        # fallback). Only enforce reconciliation when at least one step reports cost.
         if step_cost > 0:
-            tolerance = max(1e-6, float(total_cost) * 1e-4)
-            if abs(step_cost - float(total_cost)) > tolerance:
+            expected_cost = float(expected.get("cost_usd", total_cost))
+            tolerance = max(1e-6, expected_cost * 1e-4)
+            if abs(step_cost - expected_cost) > tolerance:
                 raise ValueError(
                     f"trajectory self-validation: Σ step cost_usd ({step_cost:.10f})"
-                    f" != final.total_cost_usd ({float(total_cost):.10f})"
+                    f" != attributed cost_usd ({expected_cost:.10f})"
                 )
 
 
@@ -684,6 +692,7 @@ def build_atif_trajectory(
         "total_cached_tokens": int(
             accumulated_token_usage.get("cache_read_tokens") or 0
         ),
+        "total_steps": len(steps),
     }
     if accumulated_cost is not None:
         final_metrics["total_cost_usd"] = float(accumulated_cost)
@@ -711,7 +720,34 @@ def build_atif_trajectory(
         "steps": steps,
         "final_metrics": final_metrics,
     }
-    _validate_atif_trajectory(trajectory)
+
+    attributed_resp_ids: set[str] = {
+        ev["llm_response_id"]
+        for ev in history
+        if isinstance(ev, dict)
+        and ev.get("kind") == "ActionEvent"
+        and isinstance(ev.get("llm_response_id"), str)
+    }
+    expected_per_step_sums: dict[str, float] = {
+        "reasoning_tokens": sum(
+            int(tu.get("reasoning_tokens") or 0)
+            for tu in token_usages
+            if isinstance(tu, dict) and tu.get("response_id") in attributed_resp_ids
+        ),
+        "cache_write_tokens": sum(
+            int(tu.get("cache_write_tokens") or 0)
+            for tu in token_usages
+            if isinstance(tu, dict) and tu.get("response_id") in attributed_resp_ids
+        ),
+    }
+    if costs is not None and len(costs) == len(token_usages):
+        expected_per_step_sums["cost_usd"] = sum(
+            float(c.get("cost") or 0.0) if isinstance(c, dict) else float(c or 0.0)
+            for c, tu in zip(costs, token_usages)
+            if isinstance(tu, dict) and tu.get("response_id") in attributed_resp_ids
+        )
+
+    _validate_atif_trajectory(trajectory, expected_per_step_sums)
     return trajectory
 
 
