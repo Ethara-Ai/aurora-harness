@@ -340,6 +340,19 @@ case "$MODEL_NAME" in
     *)        MODEL_SHORT="$MODEL_NAME" ;;
 esac
 
+# Path slug: full model identifier (last segment of the LLM config's 'model'
+# field, sanitized). MUST be unique per LLM config to prevent the dataset repo's
+# dataset/<uuid>/<slug>/ and trajectory/<uuid>/<slug>/ from being overwritten
+# when two configs share the same MODEL_SHORT family (e.g. claude-opus-4-8 and
+# claude-sonnet-4-5 both collapse to "claude" under MODEL_SHORT).
+MODEL_SLUG=$(python3 -c "
+import json, re
+m = json.load(open('${LLM_CONFIG}'))['model']
+last = m.rsplit('/', 1)[-1]
+slug = re.sub(r'[^A-Za-z0-9._-]', '_', last)
+print(slug[:100] or 'unknown')
+" 2>/dev/null || echo "$MODEL_SHORT")
+
 # SDK sha: source it the SAME way run_infer does (benchmarks.utils.version) so the
 # pre-built agent-server tag matches what the harness looks for under SKIP_BUILD.
 SDK_SHORT_SHA=$(uv run python -c "from benchmarks.utils.version import SDK_SHORT_SHA; print(SDK_SHORT_SHA)" 2>/dev/null)
@@ -412,6 +425,109 @@ _authed_url() {
         https://*@github.com/*) printf 'https://x-access-token:%s@github.com/%s' "$token" "${origin#https://*@github.com/}" ;;
         *)                      printf '%s' "$origin" ;;
     esac
+}
+
+# Pre-flight: validate PAT against DATA_REPO and overwrite GIT_NAME/GIT_EMAIL
+# with the token owner's identity so commits aren't attributed to a shared bot.
+# No-op under --no-push (local-only dev needs no token).
+verify_github_token_and_identity() {
+    [[ "$NO_PUSH" == true ]] && return 0
+
+    if [[ -z "$GIT_TOKEN" ]]; then
+        echo "ERROR: GITHUB_TOKEN/GH_TOKEN missing in .env and environment." >&2
+        echo "       The script needs a PAT to push to ${DATA_REPO}." >&2
+        echo "       Set GITHUB_TOKEN in .env, or pass --no-push to skip pushing." >&2
+        exit 1
+    fi
+    if ! command -v curl >/dev/null 2>&1; then
+        echo "ERROR: curl is required for GitHub token verification (or pass --no-push)." >&2
+        exit 1
+    fi
+
+    echo "Publish: verifying GitHub token from ${GIT_TOKEN_SRC}..."
+
+    local user_body user_code
+    user_body="$(mktemp "${TMPDIR:-/tmp}/gh_user.XXXXXX.json")"
+    user_code="$(curl -sS -o "$user_body" -w '%{http_code}' \
+        --max-time 10 \
+        -H "Authorization: token ${GIT_TOKEN}" \
+        -H "Accept: application/vnd.github+json" \
+        "https://api.github.com/user" 2>/dev/null || echo "000")"
+    case "$user_code" in
+        200) ;;
+        401) echo "ERROR: GitHub token is invalid or expired. Regenerate at github.com/settings/tokens." >&2; rm -f "$user_body"; exit 1 ;;
+        403) echo "ERROR: GitHub token forbidden on /user (HTTP 403)." >&2
+             echo "       Causes: classic PAT missing 'user' scope; fine-grained PAT without account-level 'User: Read' permission; or rate-limited." >&2
+             rm -f "$user_body"; exit 1 ;;
+        000) echo "ERROR: GitHub API unreachable. Check network, or pass --no-push." >&2; rm -f "$user_body"; exit 1 ;;
+        *)   echo "ERROR: GitHub /user returned HTTP ${user_code}." >&2; rm -f "$user_body"; exit 1 ;;
+    esac
+
+    local identity_lines
+    identity_lines="$(python3 - "$user_body" <<'PYSCRIPT' 2>/dev/null
+import json, sys
+with open(sys.argv[1]) as f:
+    d = json.load(f)
+login = d.get("login") or ""
+uid   = d.get("id")
+name  = d.get("name") or login
+print(name)
+print(login)
+print(uid if uid is not None else "")
+PYSCRIPT
+    )"
+    rm -f "$user_body"
+    local api_name api_login api_id
+    api_name="$(printf '%s' "$identity_lines" | sed -n '1p')"
+    api_login="$(printf '%s' "$identity_lines" | sed -n '2p')"
+    api_id="$(printf '%s' "$identity_lines" | sed -n '3p')"
+    if [[ -z "$api_login" || -z "$api_id" ]]; then
+        echo "ERROR: GitHub /user response missing login/id; cannot derive identity." >&2
+        exit 1
+    fi
+
+    local repo_path
+    repo_path="$(printf '%s' "$DATA_REPO" | sed -E 's#\.git$##; s#^https://[^@]*@github\.com/##; s#^https://github\.com/##; s#^git@github\.com:##; s#/$##')"
+    if [[ -z "$repo_path" || "$repo_path" != */* ]]; then
+        echo "ERROR: cannot parse owner/repo from DATA_REPO=${DATA_REPO}." >&2
+        exit 1
+    fi
+
+    local repo_body repo_code
+    repo_body="$(mktemp "${TMPDIR:-/tmp}/gh_repo.XXXXXX.json")"
+    repo_code="$(curl -sS -o "$repo_body" -w '%{http_code}' \
+        --max-time 10 \
+        -H "Authorization: token ${GIT_TOKEN}" \
+        -H "Accept: application/vnd.github+json" \
+        "https://api.github.com/repos/${repo_path}" 2>/dev/null || echo "000")"
+    case "$repo_code" in
+        200) ;;
+        401) echo "ERROR: token rejected when querying ${repo_path}." >&2; rm -f "$repo_body"; exit 1 ;;
+        403) echo "ERROR: token forbidden on ${repo_path} (needs 'repo' scope)." >&2; rm -f "$repo_body"; exit 1 ;;
+        404) echo "ERROR: ${repo_path} not found, or token cannot see it (user @${api_login})." >&2; rm -f "$repo_body"; exit 1 ;;
+        000) echo "ERROR: GitHub API unreachable while checking ${repo_path}." >&2; rm -f "$repo_body"; exit 1 ;;
+        *)   echo "ERROR: GitHub /repos/${repo_path} returned HTTP ${repo_code}." >&2; rm -f "$repo_body"; exit 1 ;;
+    esac
+
+    local has_push
+    has_push="$(python3 - "$repo_body" <<'PYSCRIPT' 2>/dev/null
+import json, sys
+with open(sys.argv[1]) as f:
+    d = json.load(f)
+print("yes" if (d.get("permissions") or {}).get("push") else "no")
+PYSCRIPT
+    )"
+    rm -f "$repo_body"
+    if [[ "$has_push" != "yes" ]]; then
+        echo "ERROR: token (user @${api_login}) lacks write access to ${repo_path}." >&2
+        echo "       Generate a PAT with 'repo' scope, or request collaborator access." >&2
+        exit 1
+    fi
+
+    GIT_NAME="$api_name"
+    GIT_EMAIL="${api_id}+${api_login}@users.noreply.github.com"
+    echo "Publish: token OK (user @${api_login}, write access on ${repo_path})"
+    echo "Publish: commit identity -> ${GIT_NAME} <${GIT_EMAIL}>"
 }
 
 mk_temp_llm_config() {
@@ -596,6 +712,8 @@ GIT_EMAIL="${GIT_AUTHOR_EMAIL:-milo-eval-bot@users.noreply.github.com}"
 PUSH_LOCK="${TMPDIR:-/tmp}/run_eval_push.lock"
 rm -rf "$PUSH_LOCK" 2>/dev/null
 
+verify_github_token_and_identity
+
 if [[ ! -d "$DATA_PUBLISH_DIR" ]] || ! git -C "$DATA_PUBLISH_DIR" rev-parse --git-dir >/dev/null 2>&1; then
     if [[ -z "$GIT_TOKEN" ]]; then
         echo "ERROR: --data-dir missing and no GITHUB_TOKEN/GH_TOKEN to clone $DATA_REPO"
@@ -639,7 +757,8 @@ if [[ "$DATA_CLONE_OK" == true ]]; then
     if [[ "$NO_PUSH" != true ]]; then
         git -C "$DATA_REPO_ROOT" fetch origin "$GIT_BRANCH" >/dev/null 2>&1 || \
             echo "Publish: WARN fetch origin/$GIT_BRANCH failed; continuing with current tree"
-        git -C "$DATA_REPO_ROOT" pull --rebase --autostash origin "$GIT_BRANCH" >/dev/null 2>&1 || \
+        git -C "$DATA_REPO_ROOT" -c user.name="$GIT_NAME" -c user.email="$GIT_EMAIL" \
+            pull --rebase --autostash origin "$GIT_BRANCH" >/dev/null 2>&1 || \
             echo "Publish: WARN pull --rebase --autostash failed; continuing (local commits preserved)"
     fi
 fi
@@ -971,7 +1090,7 @@ print(d.get('org',''), d.get('repo',''), d.get('number',''), d['uuid'])
     # distinct output dirs instead of clobbering each other. MUST match the
     # identity tag built in the pre-flight collision guard above.
     local DATASET_TAG="${DS_ORG}_${DS_REPO}-pr-${DS_NUMBER}"
-    local RUN_BASE="${OUTPUT_BASE}/${DATASET_TAG}/${MODEL_SHORT}"
+    local RUN_BASE="${OUTPUT_BASE}/${DATASET_TAG}/${MODEL_SLUG}"
     mkdir -p "$RUN_BASE"
 
     log "lang=$LANG instance=${DS_ORG}/${DS_REPO}#${DS_NUMBER} model=$MODEL_SHORT runs=${START_RUN}..${K}"
@@ -1297,7 +1416,7 @@ PYSCRIPT
     fi
 
     stage_dataset "$DATASET_TAG" "${DS_ORG}__${DS_REPO}-${DS_NUMBER}" "$DATASET" \
-        "$RUN_BASE" "${OUTPUT_BASE}/${DATASET_TAG}/${DATASET_TAG}_harbor" "$MODEL_SHORT" "$DS_UUID"
+        "$RUN_BASE" "${OUTPUT_BASE}/${DATASET_TAG}/${DATASET_TAG}_harbor" "$MODEL_SLUG" "$DS_UUID"
 
     log "done status=$status ${res:+result=$res}"
     echo "${TAG_NAME}|${status}|${res}" >> "$RESULTS_FILE"
@@ -1354,7 +1473,8 @@ else
     if [[ "$_lock_ok" == true ]]; then
         git -C "$DATA_REPO_ROOT" fetch origin "$GIT_BRANCH" >/dev/null 2>&1 || \
             echo "Publish: WARN final fetch failed"
-        git -C "$DATA_REPO_ROOT" pull --rebase --autostash origin "$GIT_BRANCH" >/dev/null 2>&1 || \
+        git -C "$DATA_REPO_ROOT" -c user.name="$GIT_NAME" -c user.email="$GIT_EMAIL" \
+            pull --rebase --autostash origin "$GIT_BRANCH" >/dev/null 2>&1 || \
             echo "Publish: WARN final pull --rebase --autostash failed; attempting push anyway"
 
         _ahead=$(git -C "$DATA_REPO_ROOT" rev-list --count "HEAD" "^origin/$GIT_BRANCH" 2>/dev/null || echo 0)
@@ -1367,7 +1487,8 @@ else
                 echo "Publish: push OK ($_ahead commit(s))"
             else
                 echo "Publish: push failed (non-fast-forward?); pulling and retrying once"
-                git -C "$DATA_REPO_ROOT" pull --rebase --autostash "$_target" "$GIT_BRANCH" >/dev/null 2>&1 || true
+                git -C "$DATA_REPO_ROOT" -c user.name="$GIT_NAME" -c user.email="$GIT_EMAIL" \
+                    pull --rebase --autostash "$_target" "$GIT_BRANCH" >/dev/null 2>&1 || true
                 if git -C "$DATA_REPO_ROOT" push "$_target" "HEAD:$GIT_BRANCH" >/dev/null 2>&1; then
                     echo "Publish: push OK on retry"
                 else

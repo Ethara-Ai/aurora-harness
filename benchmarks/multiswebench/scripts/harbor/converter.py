@@ -986,6 +986,16 @@ def short_agent_tag(model: str) -> str:
     return ml.split("-")[0] or "agent"
 
 
+def _path_slug(model: str) -> str:
+    # Path-safe slug from the full model identifier. Different LLM configs MUST
+    # map to different directory keys to prevent dataset/<uuid>/<slug>/ and
+    # trajectory/<uuid>/<slug>/ from being overwritten across runs of variants
+    # that short_agent_tag() collapses to the same family tag.
+    last = model.rsplit("/", 1)[-1]
+    slug = re.sub(r"[^A-Za-z0-9._-]", "_", last)
+    return slug[:100] or "unknown"
+
+
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
@@ -1072,6 +1082,7 @@ def build_trajectory(
         finished_at = now
 
     agent_tag = short_agent_tag(model)
+    path_slug = _path_slug(model)
     is_oracle = agent_tag == "oracle"
     trial_name = f"{sanitized_id}__{random_trial_suffix()}"
     trials_dir = f"/tmp/milo_jobs/mm-{agent_tag}"
@@ -1172,7 +1183,7 @@ def build_trajectory(
         "job_id": job_id,
     }
 
-    traj_dir = out_dir / "trajectory" / agent_tag / f"run_{run_index}"
+    traj_dir = out_dir / "trajectory" / path_slug / f"run_{run_index}"
     if traj_dir.exists():
         shutil.rmtree(traj_dir)
     (traj_dir / "agent").mkdir(parents=True, exist_ok=True)

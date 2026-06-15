@@ -120,7 +120,7 @@ openhands-agent-server = { workspace = true }
 swt-bench = { git = "https://github.com/logic-star-ai/swt-bench.git", rev = "5fdcd446ff05e248ecfffc19d560a210699f71f8" }
 commit0 = { git = "https://github.com/Ethara-Ai/commit0.git", rev = "1bd6bf353f736278b10b6ec97c1b27afa2ff6c75" }
 multi-swe-bench = { git = "https://github.com/Ethara-Ai/multi-swe-bench.git",  rev = "main" }
-litellm = { git = "https://github.com/Ethara-Ai/litellm.git", branch = "main" }
+litellm = { git = "https://github.com/Ethara-Ai/litellm.git", rev = "a276b06a358b4670feda1ccfbe818cfc6be9da0c" }
 
 [tool.uv]
 override-dependencies = ["litellm"]
