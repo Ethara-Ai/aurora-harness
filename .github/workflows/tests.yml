@@ -49,12 +49,15 @@ jobs:
           # T-001: non-zero coverage gate so coverage cannot silently erode.
           # Local (non-forked) total is ≈21.5%; floor set conservatively at 15%
           # to absorb --forked/CI variance. Ratchet up after a few green runs.
+          # T-001: include the benchmark-local suite (reward formula, prediction
+          # conversion, config injection) so scoring logic is merge-gated, not
+          # just the top-level tests/.
           CI=true uv run python -m pytest -vvs \
             --forked \
             --cov=benchmarks \
             --cov-report=term-missing \
             --cov-fail-under=15 \
-            tests/
+            benchmarks/multiswebench/tests tests/
           # Rename coverage file for upload
           if [ -f .coverage ]; then
             mv .coverage coverage.dat

@@ -19,10 +19,19 @@ from benchmarks.multiswebench.scripts.eval.convert import convert_to_eval_format
 # `git apply --3way` -> `patch --fuzz=2` with a captured `.rej`. Each tier
 # announces itself, so any fuzzy application is auditable in the fix log
 # (grep for "[apply] FUZZY" / inspect "*.rej").
+#
+# R-002: the injector below rewrites EVERY `git apply` line in upstream
+# fix-run.sh (global `sed ...@g`) to call this helper for both patches. Some
+# upstream repos (e.g. pandas) emit more than one `git apply` line, so the
+# helper can be invoked twice per patch. The leading reverse-check guard makes
+# re-application a safe, logged no-op so duplicate calls cannot corrupt the
+# pass/fail signal, independent of the upstream fix-run.sh structure.
 _APPLY_PATCH_HELPER = (
     "#!/bin/bash\n"
     'f="$1"\n'
-    'if git apply --check "$f" 2>/dev/null; then\n'
+    'if git apply --reverse --check "$f" 2>/dev/null; then\n'
+    '    echo "[apply] already applied (skip): $f"\n'
+    'elif git apply --check "$f" 2>/dev/null; then\n'
     '    git apply "$f"; echo "[apply] exact: $f"\n'
     'elif git apply --3way "$f" 2>/dev/null; then\n'
     '    echo "[apply] 3way: $f"\n'
