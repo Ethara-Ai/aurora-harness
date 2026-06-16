@@ -1185,31 +1185,16 @@ print(d.get('org',''), d.get('repo',''), d.get('number',''), d['uuid'])
             ' "$AGENT_DOCKERFILE" > "$PATCHED_DOCKERFILE"
             AGENT_DOCKERFILE="$PATCHED_DOCKERFILE"
         fi
-        # BuildKit/buildx cannot read base images from the classic (overlay2)
-        # docker image store — a `FROM <local-tag>` is rewritten to docker.io/...
-        # and fails with "not found". So feed buildx a registry-pullable ref:
-        # push the local base image to ECR and use that as BASE_IMAGE.
-        local BASE_IMAGE_REF="$HARNESS_IMAGE_NAME"
         # Build the agent-server for the SAME architecture as the base image,
         # otherwise `docker run --platform linux/<arch>` at eval time can't find
         # the (default amd64) image locally and fails with "manifest unknown".
         local BASE_ARCH
         BASE_ARCH=$(docker image inspect "$HARNESS_IMAGE_NAME" --format '{{.Architecture}}' 2>/dev/null || echo "amd64")
-        if [[ -n "$ECR_PREFIX" ]]; then
-            local ECR_BASE_REF
-            ECR_BASE_REF="$(echo "${ECR_PREFIX}/${DS_ORG}_m_${DS_REPO}:${EXPECTED_IMAGE_TAG}-buildbase-${BASE_ARCH}" | tr '[:upper:]' '[:lower:]')"
-            docker tag "$HARNESS_IMAGE_NAME" "$ECR_BASE_REF"
-            if docker push "$ECR_BASE_REF" >>"${RUN_BASE}/agent_server_build.log" 2>&1; then
-                BASE_IMAGE_REF="$ECR_BASE_REF"
-                log "Pushed base image to ECR for buildx (throwaway tag): $ECR_BASE_REF"
-            else
-                log "WARNING: failed to push base image to ECR ($ECR_BASE_REF); buildx may not resolve local image"
-            fi
-        fi
+        # ECR is strictly read-only here; do NOT push a local base image to ECR to satisfy buildx.
         if BUILDX_BUILDER="$DOCKER_CONTEXT" docker buildx build \
             --file "$AGENT_DOCKERFILE" --target source-minimal \
             --platform "linux/${BASE_ARCH}" \
-            --build-arg "BASE_IMAGE=$BASE_IMAGE_REF" --load \
+            --build-arg "BASE_IMAGE=$HARNESS_IMAGE_NAME" --load \
             --tag "$AGENT_SERVER_IMAGE" --build-arg BUILDKIT_INLINE_CACHE=1 \
             "$AGENT_SDK_ROOT" >"${RUN_BASE}/agent_server_build.log" 2>&1; then
             log "Agent-server built: $AGENT_SERVER_IMAGE"
