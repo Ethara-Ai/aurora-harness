@@ -1,21 +1,22 @@
 I've uploaded a {language} code repository in the directory {repo_dir}. Consider the following issue description:
 
 <issue_description>
-# {title}
 
 {body}
 
 ## Repository Information
+
 - **Repository**: {repo}
 - **Pull Request**: #{pr_number}
 - **Base Commit**: `{base_commit}`
 
 ## Related Issues
+
 {issue_urls}
 </issue_description>
 
 Can you help me implement the necessary changes to the repository so that the requirements specified in the <issue_description> are met?
-I've already taken care of all changes to any of the test files described in the <issue_description>. This means you DON'T have to modify the testing logic or any of the tests in any way!
+I've already taken care of all changes to any of the test files described in the <issue_description>. This means you MUST NOT modify the testing logic or any of the tests in any way!
 Also the development {language} environment is already set up for you (i.e., all dependencies already installed), so you don't need to install other packages.
 Your task is to make the minimal changes to non-test files in the {repo_dir} directory to ensure the <issue_description> is satisfied.
 
@@ -71,6 +72,7 @@ Phase 8. FINAL REVIEW: Carefully re-read the problem description and compare you
 Be thorough in your exploration, testing, and reasoning. It's fine if your thinking process is lengthy - quality and completeness are more important than brevity.
 
 IMPORTANT CONSTRAINTS:
+
 - ONLY modify files within the {repo_dir} directory
 - DO NOT navigate outside this directory (no `cd ..` or absolute paths to other locations)
 - DO NOT create, modify, or delete any files outside the repository
