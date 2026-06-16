@@ -872,18 +872,11 @@ except Exception:
 
 build_fix_cmd() {
     local lang="$1"
-    case "$lang" in
-        java)
-            cat <<'CMD'
-bash -c "apt-get update ; apt-get install -y patch ; echo IyEvYmluL2Jhc2gKZj0iJDEiCmlmIGdpdCBhcHBseSAtLXJldmVyc2UgLS1jaGVjayAiJGYiIDI+L2Rldi9udWxsOyB0aGVuCiAgICBlY2hvICJbYXBwbHldIGFscmVhZHkgYXBwbGllZCAoc2tpcCk6ICRmIgplbGlmIGdpdCBhcHBseSAtLWNoZWNrICIkZiIgMj4vZGV2L251bGw7IHRoZW4KICAgIGdpdCBhcHBseSAiJGYiOyBlY2hvICJbYXBwbHldIGV4YWN0OiAkZiIKZWxpZiBnaXQgYXBwbHkgLS0zd2F5ICIkZiIgMj4vZGV2L251bGw7IHRoZW4KICAgIGVjaG8gIlthcHBseV0gM3dheTogJGYiCmVsc2UKICAgIHBhdGNoIC0tYmF0Y2ggLS1mdXp6PTIgLXAxIC1pICIkZiIgLS1yZWplY3QtZmlsZT0iJGYucmVqIiBcCiAgICAgICAgJiYgZWNobyAiW2FwcGx5XSBGVVpaWSgyKTogJGYgKHNlZSAkZi5yZWopIiB8fCBlY2hvICJbYXBwbHldIEZBSUxFRDogJGYiCmZpCg== | base64 -d > /home/apply_patch.sh ; chmod +x /home/apply_patch.sh ; sed -i 's@git apply.*@bash /home/apply_patch.sh /home/test.patch ; bash /home/apply_patch.sh /home/fix.patch@g' /home/fix-run.sh ; OLD_VER=$(sed -n 's/^old_version=//p' /home/prepare.sh | tr -d '\"') ; NEW_VER=$(sed -n 's/^new_version=//p' /home/prepare.sh | tr -d '\"') ; RELEASE_VER=$(echo $OLD_VER | sed 's/-SNAPSHOT//') ; if [ -n \"$NEW_VER\" ] && [ -n \"$RELEASE_VER\" ]; then find /home -name pom.xml -exec sed -i \"s/$NEW_VER/$RELEASE_VER/g\" {} + ; fi ; find /root/.m2/repository -name *.lastUpdated -delete 2>/dev/null ; find /root/.m2/repository -name _remote.repositories -delete 2>/dev/null ; find /root/.m2/repository -name resolver-status.properties -delete 2>/dev/null ; sed -i 's@mvn @mvn -U -Dsurefire.timeout=120 @g' /home/fix-run.sh ; chmod +x /home/*.sh ; /home/fix-run.sh"
-CMD
-            ;;
-        *)
-            cat <<'CMD'
-bash -c "apt-get update ; apt-get install -y patch ; echo IyEvYmluL2Jhc2gKZj0iJDEiCmlmIGdpdCBhcHBseSAtLXJldmVyc2UgLS1jaGVjayAiJGYiIDI+L2Rldi9udWxsOyB0aGVuCiAgICBlY2hvICJbYXBwbHldIGFscmVhZHkgYXBwbGllZCAoc2tpcCk6ICRmIgplbGlmIGdpdCBhcHBseSAtLWNoZWNrICIkZiIgMj4vZGV2L251bGw7IHRoZW4KICAgIGdpdCBhcHBseSAiJGYiOyBlY2hvICJbYXBwbHldIGV4YWN0OiAkZiIKZWxpZiBnaXQgYXBwbHkgLS0zd2F5ICIkZiIgMj4vZGV2L251bGw7IHRoZW4KICAgIGVjaG8gIlthcHBseV0gM3dheTogJGYiCmVsc2UKICAgIHBhdGNoIC0tYmF0Y2ggLS1mdXp6PTIgLXAxIC1pICIkZiIgLS1yZWplY3QtZmlsZT0iJGYucmVqIiBcCiAgICAgICAgJiYgZWNobyAiW2FwcGx5XSBGVVpaWSgyKTogJGYgKHNlZSAkZi5yZWopIiB8fCBlY2hvICJbYXBwbHldIEZBSUxFRDogJGYiCmZpCg== | base64 -d > /home/apply_patch.sh ; chmod +x /home/apply_patch.sh ; sed -i 's@git apply.*@bash /home/apply_patch.sh /home/test.patch ; bash /home/apply_patch.sh /home/fix.patch@g' /home/fix-run.sh ; chmod +x /home/*.sh ; /home/fix-run.sh"
-CMD
-            ;;
-    esac
+    # Delegate to the canonical Python builder (BUG-R-002b safe; handles both
+    # the default and Java cases via the `lang=` argv).
+    ( cd "$SCRIPT_DIR" && uv run python -c \
+        'import sys; from benchmarks.multiswebench.scripts.eval.update_multi_swe_bench_config import _build_fix_patch_run_cmd; print(_build_fix_patch_run_cmd(lang=sys.argv[1]), end="")' \
+        "$lang" )
 }
 
 generate_eval_config() {
