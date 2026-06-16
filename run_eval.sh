@@ -875,12 +875,12 @@ build_fix_cmd() {
     case "$lang" in
         java)
             cat <<'CMD'
-bash -c "apt-get update ; apt-get install -y patch ; echo IyEvYmluL2Jhc2gKZj0iJDEiCmlmIGdpdCBhcHBseSAtLXJldmVyc2UgLS1jaGVjayAiJGYiIDI+L2Rldi9udWxsOyB0aGVuCiAgICBlY2hvICJbYXBwbHldIGFscmVhZHkgYXBwbGllZCAoc2tpcCk6ICRmIgplbGlmIGdpdCBhcHBseSAtLWNoZWNrICIkZiIgMj4vZGV2L251bGw7IHRoZW4KICAgIGdpdCBhcHBseSAiJGYiOyBlY2hvICJbYXBwbHldIGV4YWN0OiAkZiIKZWxpZiBnaXQgYXBwbHkgLS0zd2F5ICIkZiIgMj4vZGV2L251bGw7IHRoZW4KICAgIGVjaG8gIlthcHBseV0gM3dheTogJGYiCmVsc2UKICAgIHBhdGNoIC0tYmF0Y2ggLS1mdXp6PTIgLXAxIC1pICIkZiIgLS1yZWplY3QtZmlsZT0iJGYucmVqIiBcCiAgICAgICAgJiYgZWNobyAiW2FwcGx5XSBGVVpaWSgyKTogJGYgKHNlZSAkZi5yZWopIiB8fCBlY2hvICJbYXBwbHldIEZBSUxFRDogJGYiCmZpCg== | base64 -d > /home/apply_patch.sh ; chmod +x /home/apply_patch.sh ; sed -i 's@git apply.*@bash /home/apply_patch.sh /home/test.patch ; bash /home/apply_patch.sh /home/fix.patch@g' /home/fix-run.sh ; OLD_VER=$(sed -n 's/^old_version=//p' /home/prepare.sh | tr -d '\"') ; NEW_VER=$(sed -n 's/^new_version=//p' /home/prepare.sh | tr -d '\"') ; RELEASE_VER=$(echo $OLD_VER | sed 's/-SNAPSHOT//') ; if [ -n \"$NEW_VER\" ] && [ -n \"$RELEASE_VER\" ]; then find /home -name pom.xml -exec sed -i \"s/$NEW_VER/$RELEASE_VER/g\" {} + ; fi ; find /root/.m2/repository -name *.lastUpdated -delete 2>/dev/null ; find /root/.m2/repository -name _remote.repositories -delete 2>/dev/null ; find /root/.m2/repository -name resolver-status.properties -delete 2>/dev/null ; sed -i 's@mvn @mvn -U -Dsurefire.timeout=120 @g' /home/fix-run.sh ; chmod +x /home/*.sh ; /home/fix-run.sh"
+bash -c "apt-get update ; apt-get install -y patch ; sed -i 's@git apply.*@test -f /tmp/msbpa_t || { patch --batch --fuzz=5 -p1 -i /home/test.patch; touch /tmp/msbpa_t; }; test -f /tmp/msbpa_f || { patch --batch --fuzz=5 -p1 -i /home/fix.patch; touch /tmp/msbpa_f; }@g' /home/fix-run.sh ; OLD_VER=$(sed -n 's/^old_version=//p' /home/prepare.sh | tr -d '\"') ; NEW_VER=$(sed -n 's/^new_version=//p' /home/prepare.sh | tr -d '\"') ; RELEASE_VER=$(echo $OLD_VER | sed 's/-SNAPSHOT//') ; if [ -n \"$NEW_VER\" ] && [ -n \"$RELEASE_VER\" ]; then find /home -name pom.xml -exec sed -i \"s/$NEW_VER/$RELEASE_VER/g\" {} + ; fi ; find /root/.m2/repository -name *.lastUpdated -delete 2>/dev/null ; find /root/.m2/repository -name _remote.repositories -delete 2>/dev/null ; find /root/.m2/repository -name resolver-status.properties -delete 2>/dev/null ; sed -i 's@mvn @mvn -U -Dsurefire.timeout=120 @g' /home/fix-run.sh ; chmod +x /home/*.sh ; /home/fix-run.sh"
 CMD
             ;;
         *)
             cat <<'CMD'
-bash -c "apt-get update ; apt-get install -y patch ; echo IyEvYmluL2Jhc2gKZj0iJDEiCmlmIGdpdCBhcHBseSAtLXJldmVyc2UgLS1jaGVjayAiJGYiIDI+L2Rldi9udWxsOyB0aGVuCiAgICBlY2hvICJbYXBwbHldIGFscmVhZHkgYXBwbGllZCAoc2tpcCk6ICRmIgplbGlmIGdpdCBhcHBseSAtLWNoZWNrICIkZiIgMj4vZGV2L251bGw7IHRoZW4KICAgIGdpdCBhcHBseSAiJGYiOyBlY2hvICJbYXBwbHldIGV4YWN0OiAkZiIKZWxpZiBnaXQgYXBwbHkgLS0zd2F5ICIkZiIgMj4vZGV2L251bGw7IHRoZW4KICAgIGVjaG8gIlthcHBseV0gM3dheTogJGYiCmVsc2UKICAgIHBhdGNoIC0tYmF0Y2ggLS1mdXp6PTIgLXAxIC1pICIkZiIgLS1yZWplY3QtZmlsZT0iJGYucmVqIiBcCiAgICAgICAgJiYgZWNobyAiW2FwcGx5XSBGVVpaWSgyKTogJGYgKHNlZSAkZi5yZWopIiB8fCBlY2hvICJbYXBwbHldIEZBSUxFRDogJGYiCmZpCg== | base64 -d > /home/apply_patch.sh ; chmod +x /home/apply_patch.sh ; sed -i 's@git apply.*@bash /home/apply_patch.sh /home/test.patch ; bash /home/apply_patch.sh /home/fix.patch@g' /home/fix-run.sh ; chmod +x /home/*.sh ; /home/fix-run.sh"
+bash -c "apt-get update ; apt-get install -y patch ; sed -i 's@git apply.*@test -f /tmp/msbpa_t || { patch --batch --fuzz=5 -p1 -i /home/test.patch; touch /tmp/msbpa_t; }; test -f /tmp/msbpa_f || { patch --batch --fuzz=5 -p1 -i /home/fix.patch; touch /tmp/msbpa_f; }@g' /home/fix-run.sh ; chmod +x /home/*.sh ; /home/fix-run.sh"
 CMD
             ;;
     esac
@@ -1126,12 +1126,13 @@ print(d.get('org',''), d.get('repo',''), d.get('number',''), d['uuid'])
     if docker image inspect "$HARNESS_IMAGE_NAME" >/dev/null 2>&1; then
         log "Base image exists locally: $HARNESS_IMAGE_NAME"
     else
-        local got=false
+        local got=false HOST_ARCH
+        case "$(uname -m)" in aarch64|arm64) HOST_ARCH=arm64 ;; *) HOST_ARCH=amd64 ;; esac
         if [[ -n "$ECR_PREFIX" ]]; then
             local ECR_IMAGE
             ECR_IMAGE="$(echo "${ECR_PREFIX}/${DS_ORG}_m_${DS_REPO}:${EXPECTED_IMAGE_TAG}" | tr '[:upper:]' '[:lower:]')"
-            log "Pulling ECR image: $ECR_IMAGE"
-            if docker pull "$ECR_IMAGE" >/dev/null 2>&1; then
+            log "Pulling ECR image: $ECR_IMAGE (platform linux/${HOST_ARCH})"
+            if docker pull --platform "linux/${HOST_ARCH}" "$ECR_IMAGE" >/dev/null 2>&1; then
                 docker tag "$ECR_IMAGE" "$HARNESS_IMAGE_NAME"; got=true
                 log "Pulled & tagged: $HARNESS_IMAGE_NAME"
             else
@@ -1196,11 +1197,11 @@ print(d.get('org',''), d.get('repo',''), d.get('number',''), d['uuid'])
         BASE_ARCH=$(docker image inspect "$HARNESS_IMAGE_NAME" --format '{{.Architecture}}' 2>/dev/null || echo "amd64")
         if [[ -n "$ECR_PREFIX" ]]; then
             local ECR_BASE_REF
-            ECR_BASE_REF="$(echo "${ECR_PREFIX}/${DS_ORG}_m_${DS_REPO}:${EXPECTED_IMAGE_TAG}" | tr '[:upper:]' '[:lower:]')"
+            ECR_BASE_REF="$(echo "${ECR_PREFIX}/${DS_ORG}_m_${DS_REPO}:${EXPECTED_IMAGE_TAG}-buildbase-${BASE_ARCH}" | tr '[:upper:]' '[:lower:]')"
             docker tag "$HARNESS_IMAGE_NAME" "$ECR_BASE_REF"
             if docker push "$ECR_BASE_REF" >>"${RUN_BASE}/agent_server_build.log" 2>&1; then
                 BASE_IMAGE_REF="$ECR_BASE_REF"
-                log "Pushed base image to ECR for buildx: $ECR_BASE_REF"
+                log "Pushed base image to ECR for buildx (throwaway tag): $ECR_BASE_REF"
             else
                 log "WARNING: failed to push base image to ECR ($ECR_BASE_REF); buildx may not resolve local image"
             fi
