@@ -427,7 +427,9 @@ class MultiSWEBenchEvaluation(Evaluation):
 
         logger.info("source_repo_path: %s", source_repo_path)
         cp_testebed_repo = workspace.execute_command(
-            (f"mkdir -p {repo_path} ; cp -r {source_repo_path}/. {repo_path}")
+            f"mkdir -p {repo_path} && cd {source_repo_path} && "
+            f"tar -cf - --ignore-failed-read . | "
+            f"(cd {repo_path} && tar -xf -)"
         )
         if cp_testebed_repo.exit_code != 0:
             raise RuntimeError(f"cp_testebed_repo failed: {cp_testebed_repo.stderr}")
