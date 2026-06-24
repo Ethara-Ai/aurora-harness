@@ -59,4 +59,8 @@ def test_schema_version_present() -> None:
 
 
 def test_task_name_template_preserved() -> None:
-    assert 'name = "multi-swe-bench/multi-swe-bench__{task_id}"' in _read_task_toml()
+    assert 'name = "{task_uuid}"' in _read_task_toml()
+
+
+def test_authors_field_removed() -> None:
+    assert "authors" not in _read_task_toml()

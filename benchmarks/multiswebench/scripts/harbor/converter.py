@@ -963,6 +963,7 @@ def build_task(
     freya_pr_dir: Path,
     out_dir: Path,
     ecr_prefix: str,
+    task_uuid: str,
 ) -> dict[str, Any]:
     org = record["org"]
     repo = record["repo"]
@@ -1029,7 +1030,7 @@ def build_task(
     )
     task_toml_text = render_literal(
         read_text(TEMPLATE_DIR / "task.toml"),
-        task_id=sanitized_id,
+        task_uuid=task_uuid,
         language=language.lower(),
         repo_name=repo_name,
         difficulty=difficulty,
@@ -1534,6 +1535,7 @@ def convert_instance(
         freya_pr_dir,
         out_dir,
         ecr_prefix,
+        task_uuid,
     )
 
     for model_dir in sorted(instance_dir.iterdir()):
