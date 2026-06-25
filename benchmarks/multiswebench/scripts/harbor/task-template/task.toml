@@ -1,7 +1,26 @@
 schema_version = "1.0"
 
 [task]
-name = "{task_uuid}"
+uuid_v5 = "{task_uuid}"
+authors = [
+    { name = "Suryansh Rana" },
+    { name = "Sarvex Jatasara" },
+    { name = "Aditya Pathak" },
+    { name = "Shraiy Khaddar" },
+    { name = "Ankit Porwal" },
+    { name = "Sagarika Nayak" },
+    { name = "Abhijeet Chaurasiya" },
+    { name = "Dishansh Tiwari" },
+    { name = "Shreyansh Parashar" },
+    { name = "Kshitij Mehta" },
+    { name = "Akash Kumar" },
+    { name = "Samyak Jain" },
+    { name = "Prem Ayer" },
+    { name = "Rishav Kumar" },
+    { name = "Harish Yadav" },
+    { name = "Abhay Haldiya" },
+    { name = "Ankit kumar" },
+]
 keywords = ["{language}", "issue-resolving", "{repo_name}"]
 
 [metadata]

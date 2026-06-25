@@ -58,9 +58,12 @@ def test_schema_version_present() -> None:
     assert 'schema_version = "1.0"' in _read_task_toml()
 
 
-def test_task_name_template_preserved() -> None:
-    assert 'name = "{task_uuid}"' in _read_task_toml()
+def test_task_uuid_v5_template_preserved() -> None:
+    assert 'uuid_v5 = "{task_uuid}"' in _read_task_toml()
 
 
-def test_authors_field_removed() -> None:
-    assert "authors" not in _read_task_toml()
+def test_authors_field_present() -> None:
+    content = _read_task_toml()
+    assert "authors = [" in content
+    assert '{ name = "Suryansh Rana" }' in content
+    assert '{ name = "Ankit kumar" }' in content
