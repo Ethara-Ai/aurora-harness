@@ -313,10 +313,36 @@ class MultiSWEBenchEvaluation(Evaluation):
                     "VERTEXAI_PROJECT",
                     "VERTEXAI_LOCATION",
                 ]
+            # Anti-reward-hacking: forward task repo/package targets so the
+            # in-container egress filter can 403 lookups of the task's own
+            # repo/package. EGRESS_FILTER_DISABLE=1 (host env) is the escape hatch.
+            block_forward_env: list[str] = []
+            _task_repo = str(instance.data.get("repo", "") or "").strip()
+            _task_org = str(instance.data.get("org", "") or "").strip()
+            if "/" in _task_repo:
+                _org_part, _repo_part = _task_repo.split("/", 1)
+                if not _task_org:
+                    _task_org = _org_part.strip()
+                _task_repo = _repo_part.strip()
+            if _task_org and _task_repo:
+                os.environ["TASK_BLOCK_ORG"] = _task_org
+                os.environ["TASK_BLOCK_REPO"] = _task_repo
+                os.environ["TASK_BLOCK_PACKAGE"] = _task_repo.lower()
+                block_forward_env = [
+                    "TASK_BLOCK_ORG",
+                    "TASK_BLOCK_REPO",
+                    "TASK_BLOCK_PACKAGE",
+                ]
+            egress_forward_env: list[str] = []
+            if os.getenv("EGRESS_FILTER_DISABLE"):
+                egress_forward_env = ["EGRESS_FILTER_DISABLE"]
             workspace = DockerWorkspace(
                 server_image=agent_server_image,
                 working_dir="/workspace",
-                forward_env=(forward_env or []) + sa_forward_env,
+                forward_env=(forward_env or [])
+                + sa_forward_env
+                + block_forward_env
+                + egress_forward_env,
                 volumes=sa_volumes,
                 platform=docker_platform,
             )

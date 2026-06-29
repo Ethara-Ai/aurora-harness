@@ -754,7 +754,7 @@ echo "Publish base: $PUBLISH_BASE  (dataset/<uuid>/{harbor task}, trajectory/<uu
 
 if [[ "$DATA_CLONE_OK" == true ]]; then
     GIT_BRANCH="${GIT_BRANCH:-$(git -C "$DATA_REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)}"
-    if [[ "$NO_PUSH" != true ]]; then
+    if false && [[ "$NO_PUSH" != true ]]; then  # DISABLED: auto startup fetch/pull-rebase (commented out per request)
         git -C "$DATA_REPO_ROOT" fetch origin "$GIT_BRANCH" >/dev/null 2>&1 || \
             echo "Publish: WARN fetch origin/$GIT_BRANCH failed; continuing with current tree"
         git -C "$DATA_REPO_ROOT" -c user.name="$GIT_NAME" -c user.email="$GIT_EMAIL" \
@@ -892,8 +892,9 @@ convert_to_eval_format('${output_jsonl}', '${converted}')
     mkdir -p "${run_dir}/eval_files/dataset" "${run_dir}/eval_files/workdir" \
              "${run_dir}/eval_files/repos" "${run_dir}/eval_files/logs"
 
-    python3 -c "
+    uv run python -c "
 import json
+from benchmarks.multiswebench.scripts.eval.env_dep_inject import run_commands
 config = {
     'mode': 'evaluation',
     'workdir': '${run_dir}/eval_files/workdir',
@@ -906,8 +907,8 @@ config = {
     'need_clone': True, 'global_env': [], 'clear_env': True, 'stop_on_error': False,
     'max_workers': 5, 'max_workers_build_image': 5, 'max_workers_run_instance': 5,
     'log_dir': '${run_dir}/eval_files/logs', 'log_level': 'DEBUG',
-    'fix_patch_run_cmd': '''${fix_cmd}''',
 }
+config['fix_patch_run_cmd'] = run_commands('${lang}', '${dataset_file}', '''${fix_cmd}''')['fix_patch_run_cmd']
 with open('${run_dir}/config.json', 'w') as f:
     json.dump(config, f, indent=4)
 "
@@ -1022,7 +1023,7 @@ stage_dataset() {
 
     # Per-dataset local commit. Serialized via a separate mkdir lock (independent
     # of $PUSH_LOCK) so parallel subshells don't race on the shared git index.
-    if [[ "${DATA_REPO_ROOT:-}" != "" && -d "$DATA_REPO_ROOT/.git" ]]; then
+    if false && [[ "${DATA_REPO_ROOT:-}" != "" && -d "$DATA_REPO_ROOT/.git" ]]; then  # DISABLED: auto per-task git commit (commented out per request)
         local _commit_lock="${TMPDIR:-/tmp}/run_eval_commit.lock"
         local _commit_waited=0
         until mkdir "$_commit_lock" 2>/dev/null; do
@@ -1437,7 +1438,7 @@ if [[ "$NO_PUSH" == true ]]; then
     echo "Publish: --no-push set; skipping final push (local commits preserved at $DATA_REPO_ROOT)."
 elif [[ "$PUSH_ENABLED" != true ]]; then
     echo "Publish: push not enabled; skipping final push."
-else
+elif false; then  # DISABLED: auto final push (commented out per request; commits kept local)
     _waited=0
     _lock_ok=false
     until mkdir "$PUSH_LOCK" 2>/dev/null; do
