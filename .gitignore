@@ -235,3 +235,12 @@ debug_logs/
 
 .DS_Store
 .sisyphus/
+finish_opus.sh
+finish_seq2.sh
+grade_direct.py
+launch_parallel_opus.sh
+launch_seq_opus.sh
+stage_pilot_inputs.sh
+run_one_opus.sh
+run_gemini_batch.sh
+
