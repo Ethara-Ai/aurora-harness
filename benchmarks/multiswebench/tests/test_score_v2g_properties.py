@@ -1,4 +1,4 @@
-"""Property-based invariant verification for compute_reward_v2g.
+"""Property-based invariant verification for compute_score_v2g.
 
 Tests formula invariants on random inputs via Hypothesis.
 These tests are independent of expected values — they verify mathematical
@@ -6,14 +6,13 @@ properties that must hold universally for the formula to be correct.
 
 Run:
     cd benchmarks/multiswebench/tests
-    python -m pytest test_reward_v2g_properties.py -v
+    python -m pytest test_score_v2g_properties.py -v
 """
 
 from __future__ import annotations
 
 import importlib.util
 import pathlib
-import sys
 import unittest
 
 from hypothesis import assume, given, settings
@@ -23,7 +22,7 @@ _CONVERTER = pathlib.Path(__file__).parent.parent / "scripts" / "harbor" / "conv
 _spec = importlib.util.spec_from_file_location("converter", _CONVERTER)
 _mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_mod)
-compute = _mod.compute_reward_v2g
+compute = _mod.compute_score_v2g
 
 LANGS = ["python", "javascript", "typescript", "go", "rust", "cpp", "java", "c"]
 STATUSES = {"no_signal", "invalid", "vacuous", "polluted_dataset", "scored"}
@@ -87,13 +86,13 @@ class InvariantTests(unittest.TestCase):
 
     @given(valid_scenario())
     @settings(max_examples=500)
-    def test_P1_reward_always_in_0_1(self, scenario):
+    def test_P1_score_always_in_0_1(self, scenario):
 
         ds, rpt = scenario
         out = compute(ds, rpt)
-        r = out["rewards"]["reward_continuous_v2"]
-        self.assertGreaterEqual(r, 0.0, f"negative reward: {r}")
-        self.assertLessEqual(r, 1.0, f"reward > 1: {r}")
+        r = out["scores"]["score_continuous_v2"]
+        self.assertGreaterEqual(r, 0.0, f"negative score: {r}")
+        self.assertLessEqual(r, 1.0, f"score > 1: {r}")
 
     @given(valid_scenario())
     @settings(max_examples=500)
@@ -105,13 +104,13 @@ class InvariantTests(unittest.TestCase):
 
     @given(valid_scenario())
     @settings(max_examples=500)
-    def test_P3_reward_zero_when_vacuous_or_polluted(self, scenario):
+    def test_P3_score_zero_when_vacuous_or_polluted(self, scenario):
 
         ds, rpt = scenario
         out = compute(ds, rpt)
         if out["status"] in ("vacuous", "polluted_dataset", "invalid", "no_signal"):
-            self.assertEqual(out["rewards"]["reward_continuous_v2"], 0.0,
-                             f"non-zero reward on {out['status']}")
+            self.assertEqual(out["scores"]["score_continuous_v2"], 0.0,
+                             f"non-zero score on {out['status']}")
 
     @given(valid_scenario())
     @settings(max_examples=500)
@@ -119,7 +118,7 @@ class InvariantTests(unittest.TestCase):
 
         ds, rpt = scenario
         out = compute(ds, rpt)
-        b = out["rewards"]["reward_binary"]
+        b = out["scores"]["score_binary"]
         self.assertIn(b, (0.0, 1.0), f"binary not 0 or 1: {b}")
 
     @given(valid_scenario())
@@ -128,7 +127,7 @@ class InvariantTests(unittest.TestCase):
 
         ds, rpt = scenario
         out = compute(ds, rpt)
-        r = out["rewards"]["reward_continuous_v2"]
+        r = out["scores"]["score_continuous_v2"]
         self.assertGreaterEqual(r, 0.0)
         self.assertLessEqual(r, 1.0)
 
@@ -146,12 +145,11 @@ class InvariantTests(unittest.TestCase):
         hits_new = diag["hits_new"]
         if t_eff == 0:
             return
-        # Check that hits_new == 0 when F_p ⊆ T_p_baseline
         fix_pass = set(rpt["fix_patch_result"].get("passed_tests") or [])
         if fix_pass.issubset(baseline):
             self.assertEqual(hits_new, 0,
                              f"hits_new={hits_new} but F_p ⊆ T_p_baseline (do-nothing)")
-            self.assertEqual(out["rewards"]["reward_continuous_v2"], 0.0)
+            self.assertEqual(out["scores"]["score_continuous_v2"], 0.0)
 
     @given(valid_scenario())
     @settings(max_examples=300)
@@ -206,11 +204,11 @@ class InvariantTests(unittest.TestCase):
 
     @given(valid_scenario())
     @settings(max_examples=300)
-    def test_P11_reward_version_is_valid(self, scenario):
+    def test_P11_score_version_is_valid(self, scenario):
 
         ds, rpt = scenario
         out = compute(ds, rpt)
-        self.assertIn(out["reward_version"], ("binary", "continuous_v2"), f"unknown reward_version: {out['reward_version']}")
+        self.assertIn(out["score_version"], ("binary", "continuous_v2"), f"unknown score_version: {out['score_version']}")
 
     @given(valid_scenario())
     @settings(max_examples=200)
@@ -228,15 +226,15 @@ class InvariantTests(unittest.TestCase):
 
         ds, rpt = scenario
         out = compute(ds, rpt)
-        b = out["rewards"]["reward_binary"]
-        r = out["rewards"]["reward_continuous_v2"]
+        b = out["scores"]["score_binary"]
+        r = out["scores"]["score_continuous_v2"]
         if b == 1.0:
             self.assertAlmostEqual(r, 1.0, places=9,
                                    msg=f"binary=1 but continuous={r:.6f}")
 
     @given(valid_scenario())
     @settings(max_examples=300)
-    def test_P14_regression_never_raises_reward(self, scenario):
+    def test_P14_regression_never_raises_score(self, scenario):
 
         ds, rpt0 = scenario
         out0 = compute(ds, rpt0)
@@ -252,7 +250,6 @@ class InvariantTests(unittest.TestCase):
         )
         if not all_pass_in_preserve:
             return
-        # Introduce one regression: move first preserve member from pass→fail
         victim = next(iter(all_pass_in_preserve))
         new_pass = [t for t in fix_pass if t != victim]
         new_fail = fix_fail + [victim]
@@ -261,13 +258,13 @@ class InvariantTests(unittest.TestCase):
         out1 = compute(ds, rpt1)
         if out1["status"] != "scored":
             return
-        self.assertLessEqual(out1["rewards"]["reward_continuous_v2"],
-                             out0["rewards"]["reward_continuous_v2"] + 1e-9,
-                             f"regression raised reward: {out0['rewards']['reward_continuous_v2']:.4f} → {out1['rewards']['reward_continuous_v2']:.4f}")
+        self.assertLessEqual(out1["scores"]["score_continuous_v2"],
+                             out0["scores"]["score_continuous_v2"] + 1e-9,
+                             f"regression raised score: {out0['scores']['score_continuous_v2']:.4f} → {out1['scores']['score_continuous_v2']:.4f}")
 
     @given(valid_scenario())
     @settings(max_examples=300)
-    def test_P15_extra_fix_never_decreases_reward(self, scenario):
+    def test_P15_extra_fix_never_decreases_score(self, scenario):
 
         ds, rpt0 = scenario
         out0 = compute(ds, rpt0)
@@ -292,9 +289,9 @@ class InvariantTests(unittest.TestCase):
         out1 = compute(ds, rpt1)
         if out1["status"] != "scored":
             return
-        self.assertGreaterEqual(out1["rewards"]["reward_continuous_v2"],
-                                out0["rewards"]["reward_continuous_v2"] - 1e-9,
-                                f"extra hit decreased reward: {out0['rewards']['reward_continuous_v2']:.4f} → {out1['rewards']['reward_continuous_v2']:.4f}")
+        self.assertGreaterEqual(out1["scores"]["score_continuous_v2"],
+                                out0["scores"]["score_continuous_v2"] - 1e-9,
+                                f"extra hit decreased score: {out0['scores']['score_continuous_v2']:.4f} → {out1['scores']['score_continuous_v2']:.4f}")
 
 if __name__ == "__main__":
     unittest.main()

@@ -28,11 +28,11 @@ CRITICAL (P0) > HIGH (P1) > MEDIUM (P2) > LOW (P3) > NIT (P4) > INFO. Security s
 
 ## 1. Executive Summary
 
-The in-scope harness — the Multi-SWE-Bench inference driver (`run_infer.py`), the eval driver (`eval_infer.py`), the format/config/reward scripts under `scripts/eval`, and the shared `benchmarks/utils/*` modules they import — is **well-engineered at the code level** and **weak at the release-engineering level**. ruff (E/F/I) and a strict pyright pass with **zero** findings across all 23 in-scope files (CMD-005, CMD-010), vulture finds one trivial item (CMD-007), and the benchmark-local logic tests (reward formula, convert, data_change, config) all pass — **91 passed** (CMD-016). The reward formula has a clearly-specified single-source-of-truth implementation with property tests.
+The in-scope harness — the Multi-SWE-Bench inference driver (`run_infer.py`), the eval driver (`eval_infer.py`), the format/config/score scripts under `scripts/eval`, and the shared `benchmarks/utils/*` modules they import — is **well-engineered at the code level** and **weak at the release-engineering level**. ruff (E/F/I) and a strict pyright pass with **zero** findings across all 23 in-scope files (CMD-005, CMD-010), vulture finds one trivial item (CMD-007), and the benchmark-local logic tests (score formula, convert, data_change, config) all pass — **91 passed** (CMD-016). The score formula has a clearly-specified single-source-of-truth implementation with property tests.
 
 The blocking problems are about **what guards the scoring path in CI and what the scoring path depends on**:
 
-1. **The benchmark's own test suite — including the reward-formula and prediction-conversion tests — is never executed by CI** (T-001). CI's `tests.yml` runs only the top-level `tests/` directory; the 100+ tests under `benchmarks/multiswebench/tests/` (the only tests covering `reward_v2g`, `convert`, `data_change`, the config injection) are not invoked, and the top-level tests do not import that code (CMD-013/CMD-014). The scoring logic can regress silently.
+1. **The benchmark's own test suite — including the score-formula and prediction-conversion tests — is never executed by CI** (T-001). CI's `tests.yml` runs only the top-level `tests/` directory; the 100+ tests under `benchmarks/multiswebench/tests/` (the only tests covering `score_v2g`, `convert`, `data_change`, the config injection) are not invoked, and the top-level tests do not import that code (CMD-013/CMD-014). The scoring logic can regress silently.
 2. **The production scorer is a third-party fork pinned to a moving branch** (D-001). `pyproject.toml` pins `multi-swe-bench` to `rev = "main"`; `eval_infer.py` shells out to `multi_swe_bench.harness.run_evaluation` from that fork. A benchmark whose numbers must be reproducible is depending on an unpinned, mutable ref for its grader.
 
 Below those, MEDIUM reliability/dependency issues (eval_infer default-dataset footgun, greedy `sed` patch-apply rewrite, 71 dependency CVEs, missing `hypothesis`, un-interruptible per-instance timeouts) are HOLD-worthy. Security exposure of the harness *code* is low: only a jinja2 autoescape flag (prompt rendering, not HTML — contained) and subprocess-without-shell on a hardcoded `git` argv. No secrets in the working tree (CMD-018); git history was not scanned (limitation C-1).
@@ -117,15 +117,15 @@ Below those, MEDIUM reliability/dependency issues (eval_infer default-dataset fo
 CI=true uv run python -m pytest -vvs --forked --cov=benchmarks ... tests/
 ```
 
-CMD-013: top-level `tests/` has aggregate/iterative/timeout/security tests but no multiswebench scoring tests; CMD-014: top-level tests import only `evaluation, iterative, models, constants, run_infer` — NOT `reward_v2g, convert, data_change, update_multi_swe_bench_config`. The 100+ tests under `benchmarks/multiswebench/tests/` are never invoked (also absent from precommit.yml).
-**Why it matters:** the reward formula, prediction-conversion regex, and config injection determine the score a model gets. They have tests that don't gate merges. A regression in `compute_reward_v2g` or `convert_to_eval_format` ships green.
-**Failure scenario:** a refactor changes the `(.*)__(.*)-(.*)` parse or a reward gate threshold; CI passes (only `tests/`); benchmark numbers silently shift across a campaign.
+CMD-013: top-level `tests/` has aggregate/iterative/timeout/security tests but no multiswebench scoring tests; CMD-014: top-level tests import only `evaluation, iterative, models, constants, run_infer` — NOT `score_v2g, convert, data_change, update_multi_swe_bench_config`. The 100+ tests under `benchmarks/multiswebench/tests/` are never invoked (also absent from precommit.yml).
+**Why it matters:** the score formula, prediction-conversion regex, and config injection determine the score a model gets. They have tests that don't gate merges. A regression in `compute_score_v2g` or `convert_to_eval_format` ships green.
+**Failure scenario:** a refactor changes the `(.*)__(.*)-(.*)` parse or a score gate threshold; CI passes (only `tests/`); benchmark numbers silently shift across a campaign.
 **Remediation:** add `benchmarks/**/tests` to the pytest invocation (or a dedicated job); add `hypothesis` (T-002).
-**Acceptance criteria:** `uv run pytest benchmarks/multiswebench/tests tests/` runs green in CI on a PR, and a deliberately broken reward gate fails it.
+**Acceptance criteria:** `uv run pytest benchmarks/multiswebench/tests tests/` runs green in CI on a PR, and a deliberately broken score gate fails it.
 
-#### T-002 — Property-based reward tests cannot run: `hypothesis` missing — MEDIUM — HOLD — Confidence: High
+#### T-002 — Property-based score tests cannot run: `hypothesis` missing — MEDIUM — HOLD — Confidence: High
 
-**Evidence:** CMD-015, CMD-016, `SRC:benchmarks/multiswebench/tests/test_reward_v2g_properties.py:19`. CMD-015: collection `ModuleNotFoundError: No module named 'hypothesis'`; CMD-016: `grep -c hypothesis uv.lock == 0`.
+**Evidence:** CMD-015, CMD-016, `SRC:benchmarks/multiswebench/tests/test_score_v2g_properties.py:19`. CMD-015: collection `ModuleNotFoundError: No module named 'hypothesis'`; CMD-016: `grep -c hypothesis uv.lock == 0`.
 **Why it matters:** the strongest correctness check on the scoring formula (property invariants) errors on collection instead of protecting anything.
 **Remediation:** add `hypothesis` to `[dependency-groups].dev` and `uv lock`.
 **Acceptance criteria:** that test file collects and passes.
@@ -231,9 +231,9 @@ fut.cancel()
 
 #### Q-001 — High-complexity scoring/logging hotspots — LOW — SHIP — Confidence: High — [INSTRUMENTED: CMD-008, radon 6.0.1]
 
-**Evidence:** CMD-008: `compute_reward_v2g` E(32), `summarize_instance` E(35), `format_trajectory_line` D(24), `format_data_for_inference` D(23), `_run_iterative_mode` D(27). MI all grade A (CMD-008b).
-**Why it matters:** the two grade-E functions are reward computation and per-instance summary; high branching raises change-risk on the scoring/diagnostic path.
-**Remediation:** extract the reward gate cascade into named helpers. Not blocking.
+**Evidence:** CMD-008: `compute_score_v2g` E(32), `summarize_instance` E(35), `format_trajectory_line` D(24), `format_data_for_inference` D(23), `_run_iterative_mode` D(27). MI all grade A (CMD-008b).
+**Why it matters:** the two grade-E functions are score computation and per-instance summary; high branching raises change-risk on the scoring/diagnostic path.
+**Remediation:** extract the score gate cascade into named helpers. Not blocking.
 
 ### Repo Hygiene (H)
 
@@ -284,8 +284,8 @@ fut.cancel()
 ## 4. What This Codebase Gets Right (evidence-backed)
 
 - **Clean lint + strict types:** ruff E/F/I and pyright strict both zero on all 23 in-scope files (CMD-005, CMD-010). Q-002.
-- **Real, passing logic tests:** 91 benchmark-local tests pass, including 25 reward-formula cases and convert/data_change/config tests (CMD-016) — the scoring logic *is* tested (the gap is CI wiring, T-001).
-- **Single-source-of-truth reward formula:** `reward_v2g.py` documented as extracted so the converter and standalone evaluator "cannot drift" (`SRC:benchmarks/multiswebench/scripts/eval/reward_v2g.py:1-7`); side-effect-free import.
+- **Real, passing logic tests:** 91 benchmark-local tests pass, including 25 score-formula cases and convert/data_change/config tests (CMD-016) — the scoring logic *is* tested (the gap is CI wiring, T-001).
+- **Single-source-of-truth score formula:** `score_v2g.py` documented as extracted so the converter and standalone evaluator "cannot drift" (`SRC:benchmarks/multiswebench/scripts/eval/score_v2g.py:1-7`); side-effect-free import.
 - **Considered patch-apply escalation:** V-001 replaced a dangerous `patch --fuzz=5` with an auditable exact->3way->fuzz=2 escalation that announces FUZZY applies and captures `.rej` (`SRC:.../update_multi_swe_bench_config.py:9-34`) — right instinct, brittle delivery (R-002).
 - **Clean repo hygiene:** no tracked build artifacts — `.coverage`, `.hypothesis/`, egg-info, vendor, venv all untracked (CMD-012b); tree clean at audit time (CMD-001).
 - **Concurrency-safe result writes:** `get_default_on_result_writer` uses `fcntl.flock` exclusive locking on the shared JSONL (`SRC:benchmarks/utils/evaluation_utils.py:61-65`).
@@ -294,7 +294,7 @@ fut.cancel()
 
 ## 5. Preventing Recurrence — Engineering Guardrails
 
-1. **Merge-blocking benchmark-test job** (closes T-001, T-002): CI runs `benchmarks/**/tests` + `tests/` with `hypothesis` installed; a broken reward gate must fail it.
+1. **Merge-blocking benchmark-test job** (closes T-001, T-002): CI runs `benchmarks/**/tests` + `tests/` with `hypothesis` installed; a broken score gate must fail it.
 2. **Reproducibility contract for the grader** (closes D-001): all `[tool.uv.sources]` git deps pinned to SHAs; CI rejects branch refs.
 3. **Dependency CVE gate** (closes D-002): pip-audit in CI; scheduled weekly relock.
 4. **Secret-scan hook** (closes S-002): gitleaks pre-commit + CI over full history.
@@ -319,16 +319,16 @@ All commands run from `/Users/apple/Documents/handoff/milo-bench-clean` unless n
 | CMD-005  | `.venv/bin/ruff check $(cat /tmp/inscope.txt)`                                                               | 0                  | ruff 0.15.6                | `All checks passed!`                                                                                                                                           |
 | CMD-006  | `bandit -q -r <inscope> -f txt`                                                                              | 0                  | bandit 1.9.4               | Low:27 Medium:5 High:1; B701 jinja2 autoescape @ run_infer.py:85; total LOC 4303                                                                                 |
 | CMD-007  | `vulture <inscope> --min-confidence 70`                                                                      | 0                  | vulture 2.16               | one item:`evaluation.py:77 unused variable '__context'` (pydantic hook param)                                                                                  |
-| CMD-008  | `radon cc <inscope> -n D -s`                                                                                 | 0                  | radon 6.0.1                | `compute_reward_v2g E(32)`, `summarize_instance E(35)`, `format_trajectory_line D(24)`, `format_data_for_inference D(23)`, `_run_iterative_mode D(27)` |
+| CMD-008  | `radon cc <inscope> -n D -s`                                                                                 | 0                  | radon 6.0.1                | `compute_score_v2g E(32)`, `summarize_instance E(35)`, `format_trajectory_line D(24)`, `format_data_for_inference D(23)`, `_run_iterative_mode D(27)` |
 | CMD-008b | `radon mi <inscope> -s` (filter non-A)                                                                       | 0                  | radon 6.0.1                | no non-A lines -> all files MI grade A                                                                                                                           |
 | CMD-009  | `pip-audit -r /tmp/reqs3.txt --no-deps --disable-pip -f json` (reqs from venv dist-info, local pkgs removed) | 1                  | pip-audit 2.10.1           | `Found 71 known vulnerabilities in 22 packages`; aiohttp/litellm/cryptography/lxml/urllib3/requests/pillow/...                                                 |
 | CMD-010  | `.venv/bin/pyright $(cat /tmp/inscope.txt)`                                                                  | 0                  | pyright 1.1.408            | `0 errors, 0 warnings, 0 informations`                                                                                                                         |
 | CMD-011  | `which gitleaks trufflehog`                                                                                  | 1                  | -                          | `no secret scanner` (both absent)                                                                                                                              |
 | CMD-012  | `grep -rn 426628337772 <inscope>`                                                                            | 0                  | grep                       | run_infer.py:61, build_images.py:28/79                                                                                                                           |
 | CMD-012b | `git ls-files                                                                                                  | grep -E '.coverage | .hypothesis                | egg-info                                                                                                                                                         |
-| CMD-013  | `ls tests/`; `find tests -name '*reward*' -o -name '*multiswe*'`                                           | 0                  | -                          | top-level tests = aggregate/iterative/timeout/security/...; no reward/multiswe test file                                                                         |
+| CMD-013  | `ls tests/`; `find tests -name '*score*' -o -name '*multiswe*'`                                           | 0                  | -                          | top-level tests = aggregate/iterative/timeout/security/...; no score/multiswe test file                                                                         |
 | CMD-014  | `grep -rhoE 'from benchmarks\.[a-z_.]+ import' tests/*.py                                                      | sort -u`           | 0                          | grep                                                                                                                                                             |
-| CMD-015  | `.venv/bin/python -m pytest .../test_reward_v2g_properties.py`                                               | 2                  | pytest 9.0.2               | `ModuleNotFoundError: No module named 'hypothesis'` (collection error)                                                                                         |
+| CMD-015  | `.venv/bin/python -m pytest .../test_score_v2g_properties.py`                                               | 2                  | pytest 9.0.2               | `ModuleNotFoundError: No module named 'hypothesis'` (collection error)                                                                                         |
 | CMD-016  | `.venv/bin/python -m pytest <7 in-scope eval test files minus properties>`                                   | 0                  | pytest 9.0.2               | `91 passed`; `grep -c hypothesis uv.lock == 0`                                                                                                               |
 | CMD-017  | `bandit -f json` -> extract HIGH/MEDIUM                                                                      | 0                  | bandit 1.9.4               | HIGH B701 run_infer.py:85; MEDIUM B615 download_dataset.py:89, dataset.py:87/119 (HF no-revision-pin), B108 buildx_utils.py:74/76 (temp dir)                     |
 | CMD-017b | `semgrep --config=auto --json <inscope>`                                                                     | 1                  | semgrep 1.166.0            | 2 findings, both `direct-use-of-jinja2` WARNING @ run_infer.py:85,101 (corroborates B701)                                                                      |
@@ -379,12 +379,12 @@ The verifier validates: no stray PASS/CONDITIONAL/FAIL labels; unique IDs; every
 ```
 benchmarks/multiswebench/run_infer.py, eval_infer.py, build_images.py, download_dataset.py
 benchmarks/multiswebench/scripts/data/data_change.py
-benchmarks/multiswebench/scripts/eval/{convert,reward_v2g,eval_reward_v2g,update_multi_swe_bench_config}.py
+benchmarks/multiswebench/scripts/eval/{convert,score_v2g,eval_score_v2g,update_multi_swe_bench_config}.py
 benchmarks/utils/{args_parser,build_utils,buildx_utils,console_logging,constants,conversation,
   critics,dataset,evaluation,evaluation_utils,iterative,laminar,models,version}.py
 ```
 
-**Scoping note (reasoned call):** `reward_v2g.py`/`eval_reward_v2g.py` are in scope (they implement the documented reward formula and are imported by the eval scripts) but per grep are NOT wired into the production scoring path — `eval_infer.py` delegates scoring to the upstream `multi_swe_bench` harness. They are a well-tested standalone analysis tool; their defects would not affect a production run, which raised the relative importance of D-001/R-002 (the actual production scoring path).
+**Scoping note (reasoned call):** `score_v2g.py`/`eval_score_v2g.py` are in scope (they implement the documented score formula and are imported by the eval scripts) but per grep are NOT wired into the production scoring path — `eval_infer.py` delegates scoring to the upstream `multi_swe_bench` harness. They are a well-tested standalone analysis tool; their defects would not affect a production run, which raised the relative importance of D-001/R-002 (the actual production scoring path).
 
 **Trust model & data classification (grounded):** operator-driven CLI (`get_parser`, `args_parser.py`); secrets read from env (`RUNTIME_API_KEY`, `LMNR_PROJECT_API_KEY`, Vertex SA path) — never literal in source (CMD-018). Dataset/issue text is attacker-influenceable (becomes the prompt) but rendered to an LLM, not a browser (S-001). No PII/financial/health data in scope.
 

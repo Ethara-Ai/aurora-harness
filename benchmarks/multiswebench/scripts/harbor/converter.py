@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from benchmarks.multiswebench.scripts.eval.reward_v2g import compute_reward_v2g
+from benchmarks.multiswebench.scripts.eval.score_v2g import compute_score_v2g
 
 
 TEMPLATE_DIR = Path(__file__).parent / "task-template"
@@ -1201,8 +1201,8 @@ def build_trajectory(
             )
         except (OSError, json.JSONDecodeError):
             instance_report = None
-    verifier_result = compute_reward_v2g(dataset_record, instance_report)
-    reward_value = verifier_result["rewards"]["reward"]
+    verifier_result = compute_score_v2g(dataset_record, instance_report)
+    score_value = verifier_result["scores"]["score"]
 
     metrics = record.get("metrics") or {}
     token_usage = metrics.get("accumulated_token_usage") or {}
@@ -1455,8 +1455,8 @@ def build_trajectory(
         json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
     )
 
-    (traj_dir / "verifier" / "reward.txt").write_text(
-        f"{reward_value:.6f}\n", encoding="utf-8"
+    (traj_dir / "verifier" / "score.md").write_text(
+        f"{score_value:.6f}\n", encoding="utf-8"
     )
     fix_patch_run_log = instance_workdir / "fix-patch-run.log"
     test_stdout_text = (
@@ -1464,7 +1464,7 @@ def build_trajectory(
         if fix_patch_run_log.exists()
         else ""
     )
-    (traj_dir / "verifier" / "test-stdout.txt").write_text(
+    (traj_dir / "verifier" / "test-stdout.md").write_text(
         test_stdout_text, encoding="utf-8"
     )
 

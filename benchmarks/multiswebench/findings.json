@@ -2,7 +2,7 @@
   {
     "id": "T-001",
     "axis": "Testing",
-    "title": "Benchmark-local test suite (incl. reward/convert scoring logic) is not run by CI",
+    "title": "Benchmark-local test suite (incl. score/convert scoring logic) is not run by CI",
     "severity": "HIGH",
     "disposition": "SHIP",
     "confidence": "High",
@@ -91,20 +91,20 @@
   {
     "id": "T-002",
     "axis": "Testing",
-    "title": "Property-based reward tests cannot run: `hypothesis` absent from lockfile and venv",
+    "title": "Property-based score tests cannot run: `hypothesis` absent from lockfile and venv",
     "severity": "MEDIUM",
     "disposition": "SHIP",
     "confidence": "High",
-    "confidence_reason": "test_reward_v2g_properties.py imports hypothesis; module missing from venv (collection ImportError) and `hypothesis` is not present in uv.lock",
+    "confidence_reason": "test_score_v2g_properties.py imports hypothesis; module missing from venv (collection ImportError) and `hypothesis` is not present in uv.lock",
     "evidence": [
       "CMD-015",
       "CMD-016",
-      "SRC:benchmarks/multiswebench/tests/test_reward_v2g_properties.py:19",
+      "SRC:benchmarks/multiswebench/tests/test_score_v2g_properties.py:19",
       "CMD-023",
       "CMD-024",
       "CMD-025"
     ],
-    "affected_component": "reward formula property tests",
+    "affected_component": "score formula property tests",
     "instance_count": 1,
     "bug_ticket": "BUG-T-002",
     "resolution": "Resolved 2026-06-15. `hypothesis>=6.0.0` added to pyproject.toml dev group and uv.lock regenerated (CMD-023); `uv sync --frozen` consistent (CMD-024); the 15 property tests now collect and pass (CMD-025)."
@@ -149,7 +149,7 @@
   {
     "id": "Q-001",
     "axis": "Code Quality",
-    "title": "High cyclomatic complexity in scoring/logging hotspots (compute_reward_v2g E32, summarize_instance E35)",
+    "title": "High cyclomatic complexity in scoring/logging hotspots (compute_score_v2g E32, summarize_instance E35)",
     "severity": "LOW",
     "disposition": "SHIP",
     "confidence": "High",
@@ -158,7 +158,7 @@
       "CMD-008"
     ],
     "instrumented": "radon 6.0.1",
-    "affected_component": "reward_v2g / console_logging / data_change / evaluation",
+    "affected_component": "score_v2g / console_logging / data_change / evaluation",
     "instance_count": 5
   },
   {

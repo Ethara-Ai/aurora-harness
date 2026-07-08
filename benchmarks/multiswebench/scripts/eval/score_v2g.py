@@ -1,8 +1,8 @@
-"""v2g continuous reward formula — single source of truth.
+"""v2g continuous score formula — single source of truth.
 
-Spec: benchmarks/multiswebench/reward_formula_v2.md. Extracted from converter.py
+Spec: benchmarks/multiswebench/score_formula_v2.md. Extracted from converter.py
 (Q-001) so the production converter (build_trajectory) and the standalone CSV
-evaluator (eval_reward_v2g.py) share one implementation and cannot drift.
+evaluator (eval_score_v2g.py) share one implementation and cannot drift.
 Side-effect-free: importing this module performs no I/O.
 """
 
@@ -11,10 +11,10 @@ from __future__ import annotations
 from typing import Any
 
 
-_R0: int = 20  # absolute regression floor (reward_formula_v2.md §2.5.2)
-_POLLUTION_THRESHOLD: float = 0.8  # pollution gate (reward_formula_v2.md §2.4.3)
-_EFF_MIN: int = 3  # min effective targets (reward_formula_v2.md §2.4.3)
-_F2P_DRIFT_THRESHOLD: float = 0.3  # f2p-drift gate (reward_formula_v2.md §2.4.4)
+_R0: int = 20  # absolute regression floor (score_formula_v2.md §2.5.2)
+_POLLUTION_THRESHOLD: float = 0.8  # pollution gate (score_formula_v2.md §2.4.3)
+_EFF_MIN: int = 3  # min effective targets (score_formula_v2.md §2.4.3)
+_F2P_DRIFT_THRESHOLD: float = 0.3  # f2p-drift gate (score_formula_v2.md §2.4.4)
 
 
 def _bucket_from_raw_arrays(
@@ -54,7 +54,7 @@ def _bucket_from_raw_arrays(
 def _gold_with_lazy_recuration(
     dataset_record: dict[str, Any],
 ) -> tuple[dict[str, set[str]], bool]:
-    """Return ``(gold, lazy_recurated)`` per reward_formula_v2.md §2.2 (R1)."""
+    """Return ``(gold, lazy_recurated)`` per score_formula_v2.md §2.2 (R1)."""
     gold: dict[str, set[str]] = {
         "f2p_tests": set((dataset_record.get("f2p_tests") or {}).keys()),
         "s2p_tests": set((dataset_record.get("s2p_tests") or {}).keys()),
@@ -87,7 +87,7 @@ def _is_finite_float(value: float) -> bool:
     return value == value and value not in (float("inf"), float("-inf"))
 
 
-def compute_reward_v2g(
+def compute_score_v2g(
     dataset_record: dict[str, Any] | None,
     instance_report: dict[str, Any] | None,
     *,
@@ -96,12 +96,12 @@ def compute_reward_v2g(
     eff_min: int = _EFF_MIN,
     f2p_drift_threshold: float = _F2P_DRIFT_THRESHOLD,
 ) -> dict[str, Any]:
-    """Continuous reward v2g per ``reward_formula_v2.md`` §2.
+    """Continuous score v2g per ``score_formula_v2.md`` §2.
 
-    Returns ``{"rewards": {"reward", "reward_binary", "reward_continuous_v2"},
-    "reward_version", "status", "diagnostics"}``. The headline ``reward`` mirrors
-    ``reward_continuous_v2`` (the fractional v2g score) on ``scored`` outcomes and
-    is ``0.0`` on every non-scored outcome; ``reward_binary`` is the strict
+    Returns ``{"scores": {"score", "score_binary", "score_continuous_v2"},
+    "score_version", "status", "diagnostics"}``. The headline ``score`` mirrors
+    ``score_continuous_v2`` (the fractional v2g score) on ``scored`` outcomes and
+    is ``0.0`` on every non-scored outcome; ``score_binary`` is the strict
     pass/fail channel kept alongside it. ``status`` is one of:
     ``no_signal``, ``invalid``, ``vacuous``, ``polluted_dataset``, ``scored``.
     """
@@ -131,15 +131,15 @@ def compute_reward_v2g(
         "lazy_recurated": False,
         "regression_channel_active": False,
     }
-    rewards = {
-        "reward": 0.0,
-        "reward_binary": 0.0,
-        "reward_continuous_v2": 0.0,
+    scores = {
+        "score": 0.0,
+        "score_binary": 0.0,
+        "score_continuous_v2": 0.0,
     }
     if not isinstance(instance_report, dict) or not isinstance(dataset_record, dict):
         return {
-            "rewards": rewards,
-            "reward_version": "binary",
+            "scores": scores,
+            "score_version": "binary",
             "status": "no_signal",
             "diagnostics": diagnostics,
         }
@@ -162,16 +162,16 @@ def compute_reward_v2g(
 
     if _stage_count_drift(fix_stage) or _stage_count_drift(test_stage):
         return {
-            "rewards": rewards,
-            "reward_version": "binary",
+            "scores": scores,
+            "score_version": "binary",
             "status": "invalid",
             "diagnostics": diagnostics,
         }
 
     if T_p_baseline and not F_p and not F_f and not F_s:
         return {
-            "rewards": rewards,
-            "reward_version": "binary",
+            "scores": scores,
+            "score_version": "binary",
             "status": "invalid",
             "diagnostics": diagnostics,
         }
@@ -192,8 +192,8 @@ def compute_reward_v2g(
 
     if not targets:
         return {
-            "rewards": rewards,
-            "reward_version": "binary",
+            "scores": scores,
+            "score_version": "binary",
             "status": "vacuous",
             "diagnostics": diagnostics,
         }
@@ -204,8 +204,8 @@ def compute_reward_v2g(
     )
     if test_stage_observed == 0:
         return {
-            "rewards": rewards,
-            "reward_version": "binary",
+            "scores": scores,
+            "score_version": "binary",
             "status": "invalid",
             "diagnostics": diagnostics,
         }
@@ -225,16 +225,16 @@ def compute_reward_v2g(
         and f2p_baseline_pass_count / len(gold["f2p_tests"]) >= f2p_drift_threshold
     ):
         return {
-            "rewards": rewards,
-            "reward_version": "binary",
+            "scores": scores,
+            "score_version": "binary",
             "status": "invalid",
             "diagnostics": diagnostics,
         }
 
     if pollution_rate >= pollution_threshold and len(T_eff) < eff_min:
         return {
-            "rewards": rewards,
-            "reward_version": "binary",
+            "scores": scores,
+            "score_version": "binary",
             "status": "polluted_dataset",
             "diagnostics": diagnostics,
         }
@@ -255,13 +255,13 @@ def compute_reward_v2g(
         hits_new = 0
         recall = 1.0 if targets <= F_p else 0.0
 
-    reward_v2 = round(max(0.0, min(1.0, recall * factor)), 2)
+    score_v2 = round(max(0.0, min(1.0, recall * factor)), 2)
     binary = 1.0 if targets.issubset(F_p) and not (preserve_set & (F_f | F_s)) else 0.0
 
-    if not (_is_finite_float(reward_v2) and _is_finite_float(binary)):
+    if not (_is_finite_float(score_v2) and _is_finite_float(binary)):
         return {
-            "rewards": rewards,
-            "reward_version": "binary",
+            "scores": scores,
+            "score_version": "binary",
             "status": "invalid",
             "diagnostics": diagnostics,
         }
@@ -277,17 +277,14 @@ def compute_reward_v2g(
     diagnostics["penalty_applied"] = penalty
     diagnostics["regression_factor"] = factor
 
-    rewards = {
-        "reward": reward_v2,
-        "reward_binary": binary,
-        "reward_continuous_v2": reward_v2,
+    scores = {
+        "score": score_v2,
+        "score_binary": binary,
+        "score_continuous_v2": score_v2,
     }
     return {
-        "rewards": rewards,
-        "reward_version": "continuous_v2",
+        "scores": scores,
+        "score_version": "continuous_v2",
         "status": "scored",
         "diagnostics": diagnostics,
     }
-
-
-compute_reward_v2d = compute_reward_v2g  # backward-compat alias (one release)

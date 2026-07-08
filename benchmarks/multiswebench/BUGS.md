@@ -11,23 +11,23 @@ Commit `e3578a1838c178b6a166ba934bfc7bd12bb83871` | 2026-06-15. One ticket per H
 - **Affects Version:** e3578a1 | **Fix Version:** TBD | **Environment:** GitHub Actions (`.github/workflows/tests.yml`)
 - **CWE:** N/A | **Exploitable-by:** N/A (Failure Mode below)
 
-**Summary:** CI runs only top-level `tests/`; the 100+ tests under `benchmarks/multiswebench/tests/` (the only ones covering `reward_v2g`, `convert`, `data_change`, config injection) never execute, so scoring-logic regressions ship green.
+**Summary:** CI runs only top-level `tests/`; the 100+ tests under `benchmarks/multiswebench/tests/` (the only ones covering `score_v2g`, `convert`, `data_change`, config injection) never execute, so scoring-logic regressions ship green.
 
 **Description / Evidence:**
 `SRC:.github/workflows/tests.yml:52-57`:
 ```
 CI=true uv run python -m pytest -vvs --forked --cov=benchmarks ... tests/
 ```
-CMD-013: `tests/` has no reward/multiswe test file. CMD-014: top-level tests import only `evaluation, iterative, models, constants, run_infer` — not the scoring modules. precommit.yml runs only ruff/pycodestyle/pyright.
+CMD-013: `tests/` has no score/multiswe test file. CMD-014: top-level tests import only `evaluation, iterative, models, constants, run_infer` — not the scoring modules. precommit.yml runs only ruff/pycodestyle/pyright.
 
 **Steps to Reproduce:**
 1. `grep pytest .github/workflows/tests.yml` -> target is `tests/`.
-2. `ls benchmarks/multiswebench/tests/` -> 100+ tests including `test_reward_v2g.py`.
+2. `ls benchmarks/multiswebench/tests/` -> 100+ tests including `test_score_v2g.py`.
 3. Confirm no CI job references that path.
 
 **Expected:** the scoring tests gate merges. **Actual:** they are never run by CI.
 
-**Impact:** a regression in the reward formula or prediction-conversion parse passes CI and silently shifts benchmark numbers across an eval campaign.
+**Impact:** a regression in the score formula or prediction-conversion parse passes CI and silently shifts benchmark numbers across an eval campaign.
 
 **Failure Mode:** undetected scoring drift after a refactor.
 
@@ -35,7 +35,7 @@ CMD-013: `tests/` has no reward/multiswe test file. CMD-014: top-level tests imp
 
 **Acceptance Criteria:**
 - [ ] CI runs `benchmarks/multiswebench/tests` on every PR.
-- [ ] A deliberately broken reward gate makes the job fail.
+- [ ] A deliberately broken score gate makes the job fail.
 - [ ] Coverage floor covers the scoring modules.
 
 ---
@@ -145,22 +145,22 @@ Other git deps (`swt-bench`, `commit0`, `litellm`) are pinned to SHAs — `multi
 
 ---
 
-## BUG-T-002 — Property-based reward tests cannot run (hypothesis missing)
+## BUG-T-002 — Property-based score tests cannot run (hypothesis missing)
 
 - **Issue Key:** BUG-T-002 | **Type:** Bug (test infra) | **Priority:** P2 | **Severity:** MEDIUM | **Status:** Resolved (2026-06-15) | **Resolution:** Fixed — `hypothesis>=6.0.0` added to dev group + `uv.lock` (REPORT CMD-023/024); 15 property tests pass (CMD-025)
-- **Components:** reward formula property tests | **Labels:** testing, dependencies
+- **Components:** score formula property tests | **Labels:** testing, dependencies
 - **Affects Version:** e3578a1 | **Fix Version:** TBD | **Environment:** project `.venv` / uv.lock
 - **CWE:** N/A | **Exploitable-by:** N/A
 
-**Summary:** `test_reward_v2g_properties.py` imports `hypothesis`, which is absent from the venv and from `uv.lock`, so the strongest scoring-correctness test errors on collection.
+**Summary:** `test_score_v2g_properties.py` imports `hypothesis`, which is absent from the venv and from `uv.lock`, so the strongest scoring-correctness test errors on collection.
 
-**Description / Evidence:** `SRC:benchmarks/multiswebench/tests/test_reward_v2g_properties.py:19`; CMD-015 (`ModuleNotFoundError: No module named 'hypothesis'`); CMD-016 (`grep -c hypothesis uv.lock == 0`).
+**Description / Evidence:** `SRC:benchmarks/multiswebench/tests/test_score_v2g_properties.py:19`; CMD-015 (`ModuleNotFoundError: No module named 'hypothesis'`); CMD-016 (`grep -c hypothesis uv.lock == 0`).
 
-**Steps to Reproduce:** `.venv/bin/python -m pytest benchmarks/multiswebench/tests/test_reward_v2g_properties.py` -> collection error.
+**Steps to Reproduce:** `.venv/bin/python -m pytest benchmarks/multiswebench/tests/test_score_v2g_properties.py` -> collection error.
 
 **Expected:** test collects and runs. **Actual:** ImportError.
 
-**Impact:** the property invariants protecting the reward formula are inert; compounds BUG-T-001.
+**Impact:** the property invariants protecting the score formula are inert; compounds BUG-T-001.
 
 **Suggested Fix:** add `hypothesis` to `[dependency-groups].dev`; `uv lock`.
 

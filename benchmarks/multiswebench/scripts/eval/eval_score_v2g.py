@@ -1,10 +1,10 @@
-"""Standalone v2g reward evaluator.
+"""Standalone v2g score evaluator.
 
 Walks freya trajectories, joins each per-instance ``report.json`` with the
-corresponding ``dataset/<instance_id>.jsonl`` record, computes reward channels
+corresponding ``dataset/<instance_id>.jsonl`` record, computes score channels
 (current production, binary, continuous v2g), and writes a CSV for human review.
 
-The v2g formula is specified in ``benchmarks/multiswebench/reward_formula_v2.md``.
+The v2g formula is specified in ``benchmarks/multiswebench/score_formula_v2.md``.
 This script is intentionally read-only and self-contained: no production code
 imports it, no production code is modified by running it.
 
@@ -18,10 +18,10 @@ Key v2g additions over v2d:
 
 Usage::
 
-    uv run python benchmarks/multiswebench/scripts/eval/eval_reward_v2g.py \\
+    uv run python benchmarks/multiswebench/scripts/eval/eval_score_v2g.py \\
         --trajectories /path/to/freya/milo-bench/trajectories \\
         --dataset /path/to/freya/milo-bench/dataset \\
-        --out milo-bench/examples_out/reward_v2g_eval.csv \\
+        --out milo-bench/examples_out/score_v2g_eval.csv \\
         --limit 0   # 0 = all reports; otherwise cap for smoke runs
 """
 
@@ -33,7 +33,7 @@ import json
 import sys
 from pathlib import Path
 
-from benchmarks.multiswebench.scripts.eval.reward_v2g import compute_reward_v2g
+from benchmarks.multiswebench.scripts.eval.score_v2g import compute_score_v2g
 
 
 def _pollution_band(rate: float) -> str:
@@ -44,7 +44,7 @@ def _pollution_band(rate: float) -> str:
     return "heavy"
 
 
-def reward_current_production(report: dict) -> float:
+def score_current_production(report: dict) -> float:
     if not isinstance(report, dict):
         return 0.0
     fix = report.get("fix_patch_result") or {}
@@ -150,16 +150,16 @@ def main(argv: list[str] | None = None) -> int:
         "regression_denom",
         "recall",
         "factor",
-        "reward_v2g",
-        "reward_binary",
-        "reward_current_x100",
+        "score_v2g",
+        "score_binary",
+        "score_current_x100",
         "status",
     ]
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     rows_written = 0
     missing_dataset = 0
-    m2_excluded: dict[str, int] = {}  # lang → count of invalid (M-2) rows
+    m2_excluded: dict[str, int] = {}
 
     with args.out.open("w", encoding="utf-8", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=fieldnames)
@@ -183,8 +183,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"skip {report_path}: {exc}", file=sys.stderr)
                 continue
 
-            result = compute_reward_v2g(record, report)
-            current = reward_current_production(report)
+            result = compute_score_v2g(record, report)
+            current = score_current_production(report)
 
             d = result["diagnostics"]
             lang = record.get("lang") or "unknown"
@@ -221,9 +221,9 @@ def main(argv: list[str] | None = None) -> int:
                     "regression_denom": d.get("regression_denom"),
                     "recall": d.get("recall"),
                     "factor": d.get("regression_factor"),
-                    "reward_v2g": result["rewards"]["reward_continuous_v2"],
-                    "reward_binary": result["rewards"]["reward_binary"],
-                    "reward_current_x100": current,
+                    "score_v2g": result["scores"]["score_continuous_v2"],
+                    "score_binary": result["scores"]["score_binary"],
+                    "score_current_x100": current,
                     "status": result["status"],
                 }
             )

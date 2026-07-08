@@ -278,7 +278,7 @@ def parse_args() -> argparse.Namespace:
         "--config", required=True, help="Path to config.json written by the adapter"
     )
     parser.add_argument(
-        "--log-dir", required=True, help="Directory to store raw logs and reward"
+        "--log-dir", required=True, help="Directory to store raw logs and score"
     )
     return parser.parse_args()
 
@@ -436,7 +436,7 @@ def main() -> int:
     test_patch_path = Path(cfg.get("test_patch_path", "/tests/test.patch"))
     home_test_patch = Path(cfg.get("home_test_patch", "/home/test.patch"))
 
-    reward_path = log_dir / "reward.txt"
+    score_path = log_dir / "score.md"
     phase_eval_log = log_dir / "phase_eval.log"
     fix_log = log_dir / "fix.log"
     exit_status = 1
@@ -540,7 +540,7 @@ def main() -> int:
         exit_status = 1
 
     finally:
-        reward_path.write_text("1\n" if exit_status == 0 else "0\n")
+        score_path.write_text("1\n" if exit_status == 0 else "0\n")
 
     return exit_status
 
